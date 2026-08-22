@@ -1,3 +1,5 @@
+import { gunzipSync } from "node:zlib";
+
 import { z } from "zod";
 
 import { classroomConfigSchema, preferenceResponseSchema } from "../packages/api/src/schemas/classroom";
@@ -117,6 +119,14 @@ function requiredEnvironment(name: string): string {
   return value;
 }
 
+function readSeedPayload() {
+  const compressed = process.env.DEMO_SEED_GZIP_B64?.trim();
+  const json = compressed
+    ? gunzipSync(Buffer.from(compressed, "base64")).toString("utf8")
+    : Buffer.from(requiredEnvironment("DEMO_SEED_B64"), "base64").toString("utf8");
+  return seedPayloadSchema.parse(JSON.parse(json));
+}
+
 async function deleteDemoAccount(username: string) {
   const existing = await db.query.user.findFirst({ where: eq(user.username, username) });
   if (!existing) {
@@ -138,10 +148,7 @@ async function deleteDemoAccount(username: string) {
 async function seedDemoAccount(username: string) {
   const password = requiredEnvironment("DEMO_PASSWORD");
   const displayName = process.env.DEMO_DISPLAY_NAME?.trim() || "Compte de démonstration";
-  const encodedPayload = requiredEnvironment("DEMO_SEED_B64");
-  const payload = seedPayloadSchema.parse(
-    JSON.parse(Buffer.from(encodedPayload, "base64").toString("utf8")),
-  );
+  const payload = readSeedPayload();
 
   const existing = await db.query.user.findFirst({ where: eq(user.username, username) });
   if (existing) throw new Error(`Le compte ${username} existe déjà.`);
