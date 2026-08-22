@@ -58,10 +58,12 @@ let database: Database;
 let auth: ReturnType<typeof createAuth>;
 
 function request(path: string, body?: unknown, cookie?: string) {
-  const headers = new Headers({ Origin: "http://localhost:3001", "x-real-ip": "127.0.0.1" });
+  const origin = process.env.CORS_ORIGIN ?? "http://localhost:3001";
+  const authUrl = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
+  const headers = new Headers({ Origin: origin, "x-real-ip": "127.0.0.1" });
   if (body !== undefined) headers.set("content-type", "application/json");
   if (cookie) headers.set("cookie", cookie);
-  return new Request(`http://localhost:3000/api/auth${path}`, {
+  return new Request(`${authUrl}/api/auth${path}`, {
     method: body === undefined ? "GET" : "POST",
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -70,7 +72,7 @@ function request(path: string, body?: unknown, cookie?: string) {
 
 function sessionCookie(response: Response): string {
   const header = response.headers.get("set-cookie") ?? "";
-  const match = header.match(/plan2classe\.session_token=[^;,]+/);
+  const match = header.match(/(?:__Secure-)?plan2classe\.session_token=[^;,]+/);
   if (!match) throw new Error("Le cookie de session Better Auth est absent.");
   return match[0];
 }
