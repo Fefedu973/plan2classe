@@ -1,0 +1,12 @@
+[project]
+name = "plan2classe-solver"
+version = "1.0.0"
+description = "Stateless OR-Tools CP-SAT solver for Plan2Classe"
+requires-python = ">=3.13,<3.14"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110

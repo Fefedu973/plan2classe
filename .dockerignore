@@ -1,32 +1,41 @@
+# Dependency and build caches
 **/node_modules
-.git
-
+**/.turbo
+**/.next
 **/dist
 **/build
-**/.next
-**/.nuxt
 **/.output
-**/.svelte-kit
-**/.astro
-**/.turbo
-.turbo
+**/.cache
+**/.pytest_cache
+**/__pycache__
+**/*.py[cod]
 
-**/.wrangler
-**/.alchemy
-**/.expo
-**/.vercel
+# VCS, editors and CI metadata are not needed in runtime images
+.git
+.github
+.idea
+.vscode
 *.log
+*.swp
 
-Dockerfile
-**/Dockerfile
-docker-compose.yml
+# Local databases, coverage and generated artefacts
+.data
+**/local.db
+**/local.db-*
+**/*.sqlite
+**/*.sqlite3
+**/coverage
+**/.coverage
+**/htmlcov
 
-# Secrets stay out of image layers; runtime env comes from compose env_file,
-# build-time public values come from compose build args
+# Never copy local secrets into an image layer. Public build-time values are
+# injected explicitly as Docker build arguments by Compose.
 **/.env
 **/.env.*
 !**/.env.example
 
-local.db
-local.db-*
-.data
+# Deployment and contributor-only files
+compose*.yml
+docker-compose*.yml
+docs
+README.md

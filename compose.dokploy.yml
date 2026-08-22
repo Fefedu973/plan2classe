@@ -1,0 +1,135 @@
+name: plan2classe
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_SERVER_URL: ${APP_URL:?APP_URL must be set}
+    init: true
+    environment:
+      NODE_ENV: production
+      SERVER_URL: http://server:3000
+      NEXT_PUBLIC_SERVER_URL: ${APP_URL:?APP_URL must be set}
+    expose:
+      - "3001"
+    depends_on:
+      server:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3001/').then((response) =>
+          process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 20s
+    networks:
+      - dokploy-network
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    init: true
+    command:
+      - /bin/sh
+      - -ec
+      - >-
+        cd /app/packages/db && bun run db:migrate:deploy &&
+        cd /app/apps/server && exec bun dist/index.mjs
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: file:/data/plan2classe.db
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET must be set}
+      BETTER_AUTH_URL: ${APP_URL:?APP_URL must be set}
+      CORS_ORIGIN: ${APP_URL:?APP_URL must be set}
+      SOLVER_URL: http://solver:8000
+      SOLVER_TIMEOUT_MS: ${SOLVER_TIMEOUT_MS:-45000}
+      PUBLIC_SUBMIT_RATE_LIMIT: ${PUBLIC_SUBMIT_RATE_LIMIT:-20}
+      PUBLIC_SUBMIT_RATE_WINDOW_MS: ${PUBLIC_SUBMIT_RATE_WINDOW_MS:-60000}
+    expose:
+      - "3000"
+    depends_on:
+      solver:
+        condition: service_healthy
+    volumes:
+      - plan2classe-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3000/health').then((response) =>
+          process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    networks:
+      - dokploy-network
+
+  solver:
+    build:
+      context: services/solver
+      dockerfile: Dockerfile
+    init: true
+    environment:
+      PYTHONUNBUFFERED: "1"
+    expose:
+      - "8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    networks:
+      - dokploy-network
+
+volumes:
+  plan2classe-data:
+    name: plan2classe-data
+
+networks:
+  dokploy-network:
+    external: true

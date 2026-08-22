@@ -11,17 +11,43 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 
+import { FixedWindowRateLimiter, trustedProxyClientKey } from "./public-submit-rate-limit";
+
 const app = new Hono();
+const publicSubmitRateLimiter = new FixedWindowRateLimiter(
+  env.PUBLIC_SUBMIT_RATE_LIMIT,
+  env.PUBLIC_SUBMIT_RATE_WINDOW_MS,
+);
 
 app.use(logger());
 app.use(
   "/*",
   cors({
     origin: env.CORS_ORIGIN,
-    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   }),
+);
+
+app.use("/*", async (c, next) => {
+  const isPublicSubmission =
+    c.req.method === "POST" &&
+    (c.req.path === "/rpc/publicClassroom/submit" ||
+      c.req.path === "/api-reference/publicClassroom/submit");
+  if (!isPublicSubmission) return next();
+
+  const decision = publicSubmitRateLimiter.take(trustedProxyClientKey(c.req.raw.headers));
+  if (!decision.allowed) {
+    c.header("Retry-After", String(decision.retryAfterSeconds));
+    return c.json({ error: "Trop de soumissions. Réessayez dans un instant." }, 429);
+  }
+  return next();
+});
+
+app.get("/", (c) => c.text("OK"));
+app.get("/health", (c) =>
+  c.json({ status: "ok", service: "plan2classe-api", timestamp: new Date().toISOString() }),
 );
 
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
@@ -56,7 +82,7 @@ app.use("/*", async (c, next) => {
   });
 
   if (rpcResult.matched) {
-    return c.newResponse(rpcResult.response.body, rpcResult.response);
+    return rpcResult.response as Response;
   }
 
   const apiResult = await apiHandler.handle(c.req.raw, {
@@ -65,14 +91,10 @@ app.use("/*", async (c, next) => {
   });
 
   if (apiResult.matched) {
-    return c.newResponse(apiResult.response.body, apiResult.response);
+    return apiResult.response as Response;
   }
 
   await next();
-});
-
-app.get("/", (c) => {
-  return c.text("OK");
 });
 
 export default app;

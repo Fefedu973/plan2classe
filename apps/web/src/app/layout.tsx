@@ -1,23 +1,19 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 
 import "../index.css";
-import Header from "@/components/header";
 import Providers from "@/components/providers";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+const inter = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "plan2classe-app",
-  description: "plan2classe-app",
+  title: {
+    default: "Plan2Classe — des plans justes, calculés autrement",
+    template: "%s · Plan2Classe",
+  },
+  description:
+    "Créez une salle, recueillez les préférences et calculez un plan de classe équitable avec un solveur exact.",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SERVER_URL ?? "http://localhost:3001"),
 };
 
 export default function RootLayout({
@@ -26,14 +22,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <Providers>
-          <div className="grid grid-rows-[auto_1fr] h-svh">
-            <Header />
-            {children}
-          </div>
-        </Providers>
+    <html lang="fr" suppressHydrationWarning className={inter.variable}>
+      <body className="min-h-svh bg-background font-sans text-foreground antialiased">
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

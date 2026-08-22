@@ -11,9 +11,11 @@ RUN cd apps/server && bun run build
 FROM oven/bun:1 AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-COPY --from=builder /app /app
+COPY --from=builder --chown=bun:bun /app /app
+RUN mkdir -p /data && chown -R bun:bun /data
 
 EXPOSE 3000
 
+USER bun
 WORKDIR /app/apps/server
-CMD ["bun", "dist/index.mjs"]
+CMD ["sh", "-c", "cd /app/packages/db && bun run db:migrate:deploy && cd /app/apps/server && bun run dist/index.mjs"]
