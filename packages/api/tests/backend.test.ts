@@ -25,6 +25,7 @@ CREATE TABLE user (
   name text NOT NULL,
   email text NOT NULL UNIQUE,
   email_verified integer DEFAULT false NOT NULL,
+  username text UNIQUE,
   image text,
   created_at integer NOT NULL,
   updated_at integer NOT NULL
@@ -139,6 +140,44 @@ describe("formulaire public", () => {
     expect(serialized).not.toContain("previous_assignment");
     expect(serialized).not.toContain("rules");
     expect(serialized).not.toContain("response_received");
+  });
+
+  test("les zones nommées masquent les tags techniques de la salle", async () => {
+    const namedZone = "zone:milieu-droit";
+    const zonedConfig = classroomConfigSchema.parse({
+      ...config,
+      room: {
+        ...config.room,
+        seats: config.room.seats.map((seat, index) =>
+          index === 0 ? { ...seat, tags: [...seat.tags, namedZone] } : seat,
+        ),
+      },
+    });
+    await database.update(classrooms).set({ config: zonedConfig });
+
+    const payload = await getPublicClassroom(database, "sixieme-a");
+    expect(payload.zones).toEqual([namedZone]);
+
+    const baseResponse = {
+      participant_id: config.participants[0]!.id,
+      seat_ranking: [],
+      desired_neighbors: [],
+      avoided_neighbors: [],
+      priority_mode: "none" as const,
+      notes: "",
+    };
+    await expect(
+      submitPublicResponse(database, {
+        slug: "sixieme-a",
+        response: { ...baseResponse, zone_ranking: ["front"] },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      submitPublicResponse(database, {
+        slug: "sixieme-a",
+        response: { ...baseResponse, zone_ranking: [namedZone] },
+      }),
+    ).resolves.toMatchObject({ saved: true });
   });
 
   test("une révision conserve firstSubmittedAt et incrémente revision", async () => {

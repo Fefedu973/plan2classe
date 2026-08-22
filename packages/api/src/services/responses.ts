@@ -38,6 +38,21 @@ function unique(values: string[]): boolean {
   return new Set(values).size === values.length;
 }
 
+function publicZoneTags(config: ReturnType<typeof parseClassroomConfig>): string[] {
+  const tags = [
+    ...new Set(
+      config.room.seats
+        .filter((seat) => seat.enabled)
+        .flatMap((seat) => seat.tags)
+        .filter((tag) => tag !== "left" && tag !== "right" && !tag.startsWith("row:")),
+    ),
+  ];
+  const namedZones = tags.filter((tag) => tag.startsWith("zone:") && tag.length > 5);
+  return (namedZones.length > 0 ? namedZones : tags).sort((left, right) =>
+    left.localeCompare(right, "fr"),
+  );
+}
+
 function validatePublicResponse(
   raw: unknown,
   config: ReturnType<typeof parseClassroomConfig>,
@@ -49,12 +64,7 @@ function validatePublicResponse(
   const activeSeats = new Set(
     config.room.seats.filter((seat) => seat.enabled).map((seat) => seat.id),
   );
-  const zones = new Set(
-    config.room.seats
-      .filter((seat) => seat.enabled)
-      .flatMap((seat) => seat.tags)
-      .filter((tag) => tag !== "left" && tag !== "right" && !tag.startsWith("row:")),
-  );
+  const zones = new Set(publicZoneTags(config));
   const fail = (message: string): never => {
     throw new ORPCError("BAD_REQUEST", { message });
   };
@@ -111,14 +121,7 @@ export async function getPublicClassroom(database: Database, slug: string) {
   });
   if (!row) throw new ORPCError("NOT_FOUND", { message: "Formulaire introuvable." });
   const config = parseClassroomConfig(row.config);
-  const zones = [
-    ...new Set(
-      config.room.seats
-        .filter((seat) => seat.enabled)
-        .flatMap((seat) => seat.tags)
-        .filter((tag) => tag !== "left" && tag !== "right" && !tag.startsWith("row:")),
-    ),
-  ].sort((left, right) => left.localeCompare(right, "fr"));
+  const zones = publicZoneTags(config);
 
   return publicClassroomPayloadSchema.parse({
     classroom: {

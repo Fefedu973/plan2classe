@@ -30,12 +30,37 @@ import { authClient } from "@/lib/auth-client";
 
 type AuthMode = "signin" | "signup";
 
+function authErrorMessage(
+  error: { code?: string; message?: string; status?: number },
+  isSignUp: boolean,
+): string {
+  if (error.status === 429) {
+    return "Trop de tentatives. Patientez quelques minutes avant de réessayer.";
+  }
+  if (error.code === "USERNAME_IS_ALREADY_TAKEN") return "Cet identifiant est déjà utilisé.";
+  if (error.code === "INVALID_USERNAME_OR_PASSWORD") {
+    return "Identifiant ou mot de passe incorrect.";
+  }
+  if (error.code === "USERNAME_TOO_SHORT" || error.code === "USERNAME_TOO_LONG") {
+    return "L’identifiant doit contenir entre 3 et 30 caractères.";
+  }
+  if (error.code === "INVALID_USERNAME") {
+    return "Utilisez uniquement des lettres, chiffres, points ou tirets bas.";
+  }
+  return (
+    error.message ??
+    (isSignUp
+      ? "Ce compte n’a pas pu être créé. Vérifiez les informations saisies."
+      : "Connexion impossible. Vérifiez votre identifiant et votre mot de passe.")
+  );
+}
+
 export function AuthPanel({ initialMode }: { initialMode: AuthMode }) {
   const router = useRouter();
   const formId = useId();
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [pending, setPending] = useState(false);
@@ -53,10 +78,10 @@ export function AuthPanel({ initialMode }: { initialMode: AuthMode }) {
     event.preventDefault();
     setError(null);
 
-    const cleanEmail = email.trim().toLowerCase();
+    const cleanUsername = username.trim().toLowerCase();
     const cleanName = name.trim();
-    if (!cleanEmail || !cleanEmail.includes("@")) {
-      setError("Saisissez une adresse e-mail valide.");
+    if (!/^[a-zA-Z0-9_.]{3,30}$/.test(cleanUsername)) {
+      setError("L’identifiant doit contenir 3 à 30 lettres, chiffres, points ou tirets bas.");
       return;
     }
     if (password.length < 8) {
@@ -71,16 +96,18 @@ export function AuthPanel({ initialMode }: { initialMode: AuthMode }) {
     setPending(true);
     try {
       const result = isSignUp
-        ? await authClient.signUp.email({ email: cleanEmail, password, name: cleanName })
-        : await authClient.signIn.email({ email: cleanEmail, password });
+        ? await authClient.signUp.email({
+            // Better Auth exige ce champ dans son protocole. Le serveur le
+            // remplace systématiquement par une adresse locale non distribuable.
+            email: "local-account@plan2classe.invalid",
+            password,
+            name: cleanName,
+            username: cleanUsername,
+          })
+        : await authClient.signIn.username({ username: cleanUsername, password });
 
       if (result.error) {
-        setError(
-          result.error.message ??
-            (isSignUp
-              ? "Ce compte n’a pas pu être créé. Vérifiez les informations saisies."
-              : "Connexion impossible. Vérifiez votre e-mail et votre mot de passe."),
-        );
+        setError(authErrorMessage(result.error, isSignUp));
         return;
       }
 
@@ -162,7 +189,7 @@ export function AuthPanel({ initialMode }: { initialMode: AuthMode }) {
                 </CardTitle>
                 <CardDescription className="leading-6">
                   {isSignUp
-                    ? "Un e-mail, un mot de passe, et vous pouvez préparer votre première classe."
+                    ? "Choisissez un identifiant local et créez votre première classe."
                     : "Connectez-vous pour gérer vos classes et leurs formulaires."}
                 </CardDescription>
               </CardHeader>
@@ -186,19 +213,26 @@ export function AuthPanel({ initialMode }: { initialMode: AuthMode }) {
                   ) : null}
 
                   <div className="space-y-2">
-                    <Label htmlFor={`${formId}-email`}>Adresse e-mail</Label>
+                    <Label htmlFor={`${formId}-username`}>Identifiant</Label>
                     <Input
-                      id={`${formId}-email`}
-                      name="email"
-                      type="email"
-                      inputMode="email"
-                      autoComplete="email"
-                      value={email}
-                      onChange={(event) => setEmail(event.target.value)}
-                      placeholder="vous@etablissement.fr"
+                      id={`${formId}-username`}
+                      name="username"
+                      type="text"
+                      inputMode="text"
+                      autoComplete="username"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      value={username}
+                      onChange={(event) => setUsername(event.target.value)}
+                      placeholder="marie.dupont"
                       disabled={pending}
                       required
+                      minLength={3}
+                      maxLength={30}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      3 à 30 caractères : lettres, chiffres, point ou tiret bas.
+                    </p>
                   </div>
 
                   <div className="space-y-2">
@@ -266,8 +300,8 @@ export function AuthPanel({ initialMode }: { initialMode: AuthMode }) {
             </Card>
 
             <p className="px-4 text-center text-xs leading-5 text-muted-foreground">
-              Aucun service d’e-mail tiers n’est nécessaire : votre adresse sert uniquement à
-              identifier votre compte administrateur.
+              Aucun e-mail n’est demandé ou envoyé. Il n’existe donc pas de récupération par
+              e-mail : conservez votre identifiant et votre mot de passe dans un gestionnaire.
             </p>
           </div>
         </section>

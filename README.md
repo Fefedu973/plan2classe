@@ -13,8 +13,8 @@ résultat avant son enregistrement.
 
 ## Fonctionnalités
 
-- comptes enseignants locaux par e-mail et mot de passe avec Better Auth, sans
-  fournisseur d'e-mail externe ;
+- comptes enseignants locaux par identifiant et mot de passe avec le plugin
+  username de Better Auth, sans adresse réelle, SMTP ni récupération par e-mail ;
 - plusieurs classes par compte, duplication, publication et lien public stable ;
 - constructeur visuel avec mobilier, places, tableau, tags, zones et relations ;
 - import et édition d'élèves, tags, niveau, latéralité, vision et audition ;
@@ -118,6 +118,33 @@ cd services/solver && python -m pytest
 
 La CI GitHub exécute ces contrôles, valide Compose et construit les trois images.
 Aucun secret de production n'est stocké dans le dépôt.
+
+## Compte de démonstration temporaire
+
+Le script `scripts/demo-account.ts` permet de créer puis de supprimer proprement
+un compte de démonstration. Le jeu de données est fourni hors du dépôt sous la
+forme d'un JSON encodé en base64 : les noms, réponses et codes d'accès ne sont
+donc jamais versionnés.
+
+```bash
+DEMO_USERNAME=demo.local \
+DEMO_PASSWORD='<mot-de-passe-temporaire>' \
+DEMO_DISPLAY_NAME='Compte de démonstration' \
+DEMO_SEED_B64='<json-encode-en-base64>' \
+bun run demo:account
+```
+
+Chaque classe et chaque réponse sont validées avant insertion. Les classes
+marquées `solve` sont calculées après la transaction ; si une insertion ou un
+calcul échoue, le compte nouvellement créé est supprimé avec toutes ses données.
+Pour retirer ensuite l'ensemble du compte et de ses classes par cascade :
+
+```bash
+DEMO_ACTION=delete \
+DEMO_USERNAME=demo.local \
+DEMO_CONFIRM_DELETE='<userId>:demo.local' \
+bun run demo:account
+```
 
 ## Déploiement Dokploy
 

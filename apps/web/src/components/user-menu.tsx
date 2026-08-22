@@ -25,7 +25,7 @@ export default function UserMenu() {
   if (!session) {
     return (
       <Link href="/login">
-        <Button variant="outline">Sign In</Button>
+        <Button variant="outline">Se connecter</Button>
       </Link>
     );
   }
@@ -37,9 +37,11 @@ export default function UserMenu() {
       </DropdownMenuTrigger>
       <DropdownMenuContent className="bg-card">
         <DropdownMenuGroup>
-          <DropdownMenuLabel>My Account</DropdownMenuLabel>
+          <DropdownMenuLabel>Mon espace</DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuItem>{session.user.email}</DropdownMenuItem>
+          <DropdownMenuItem className="font-mono text-xs">
+            @{session.user.username ?? session.user.name}
+          </DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
             onClick={() => {
@@ -52,7 +54,7 @@ export default function UserMenu() {
               });
             }}
           >
-            Sign Out
+            Se déconnecter
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>

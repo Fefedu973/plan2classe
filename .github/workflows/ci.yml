@@ -42,8 +42,8 @@ jobs:
       - name: Vérifier les types
         run: bun run check-types
 
-      - name: Tester l'API et l'isolation des données
-        run: bun test packages/api/tests
+      - name: Tester l'authentification, l'API et l'isolation des données
+        run: bun test packages/auth/tests packages/api/tests apps/server/tests
 
       - name: Construire les applications
         run: bun run build

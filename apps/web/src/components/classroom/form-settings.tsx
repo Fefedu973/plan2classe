@@ -78,7 +78,7 @@ export function FormSettings({
           </div>
 
           <div className="divide-y rounded-xl border px-4">
-            <SettingRow label="Préférences de zone" description="Proposer les tags front, fond, mur, fenêtre et vos zones personnalisées."><Switch checked={form.collectZones} onCheckedChange={(checked) => set("collectZones", checked)} /></SettingRow>
+            <SettingRow label="Préférences de zone" description="Les tags zone:… définissent les zones publiques ; sans eux, les tags de salle classiques sont proposés."><Switch checked={form.collectZones} onCheckedChange={(checked) => set("collectZones", checked)} /></SettingRow>
             <SettingRow label="Arbitrage place / voisin" description="Demander ce qui compte le plus si tous les souhaits ne sont pas compatibles."><Switch checked={form.collectPriority} onCheckedChange={(checked) => set("collectPriority", checked)} /></SettingRow>
             <SettingRow label="Note libre" description="Laisser un champ pour une information que l’administrateur traitera manuellement."><Switch checked={form.collectNotes} onCheckedChange={(checked) => set("collectNotes", checked)} /></SettingRow>
             <SettingRow label="Modifier sa réponse" description="Une nouvelle soumission remplace la réponse précédente sans perdre l’ordre d’arrivée initial."><Switch checked={form.allowEdits} onCheckedChange={(checked) => set("allowEdits", checked)} /></SettingRow>

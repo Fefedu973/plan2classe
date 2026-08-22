@@ -136,6 +136,13 @@ function errorMessage(error: unknown) {
   return "Une erreur inattendue est survenue. Réessayez dans quelques instants.";
 }
 
+function zoneLabel(zone: string) {
+  const readable = zone.replace(/^zone:/, "").replace(/[-_]+/g, " ").trim();
+  return readable
+    ? `${readable[0]?.toLocaleUpperCase("fr-FR")}${readable.slice(1)}`
+    : zone;
+}
+
 export function PublicClassroomForm({ slug }: { slug: string }) {
   const classroomQuery = useQuery(
     orpc.publicClassroom.get.queryOptions({ input: { slug }, retry: false }),
@@ -726,7 +733,7 @@ function PreferencesStep({
                     >
                       {selected ? index + 1 : <MousePointerClick className="size-3" />}
                     </span>
-                    {zone}
+                    {zoneLabel(zone)}
                   </button>
                 );
               })}
