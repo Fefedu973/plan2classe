@@ -1,0 +1,3 @@
+{
+  "extends": "@plan2classe-app/config/tsconfig.base.json"
+}

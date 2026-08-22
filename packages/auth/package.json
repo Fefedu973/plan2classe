@@ -1,0 +1,24 @@
+{
+  "name": "@plan2classe-app/auth",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {},
+  "dependencies": {
+    "@plan2classe-app/db": "workspace:*",
+    "@plan2classe-app/env": "workspace:*",
+    "better-auth": "catalog:",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@plan2classe-app/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}
