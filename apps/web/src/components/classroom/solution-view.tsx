@@ -17,7 +17,6 @@ import {
   CardTitle,
 } from "@plan2classe-app/ui/components/card";
 import { Progress } from "@plan2classe-app/ui/components/progress";
-import { Separator } from "@plan2classe-app/ui/components/separator";
 import { Skeleton } from "@plan2classe-app/ui/components/skeleton";
 import {
   Table,
@@ -369,7 +368,7 @@ function ConstraintProof({ solution }: { solution: SolutionRecord }) {
             className={cn(
               "grid size-9 shrink-0 place-items-center rounded-lg",
               result.hard_constraints_verified
-                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                ? "bg-success-muted text-success"
                 : "bg-destructive/10 text-destructive",
             )}
           >
@@ -452,7 +451,7 @@ function StageDetails({ solution }: { solution: SolutionRecord }) {
         </CardDescription>
       </CardHeader>
       <Table>
-        <TableHeader>
+        <TableHeader className="bg-muted/40">
           <TableRow>
             <TableHead>Étape</TableHead>
             <TableHead>Statut</TableHead>
@@ -527,7 +526,7 @@ function PeopleScores({
         </CardDescription>
       </CardHeader>
       <Table>
-        <TableHeader>
+        <TableHeader className="bg-muted/40">
           <TableRow>
             <TableHead>Élève</TableHead>
             <TableHead>Place</TableHead>
@@ -615,7 +614,7 @@ function Diagnostics({ diagnostics }: { diagnostics: Array<Record<string, unknow
     <Card className="shadow-none">
       <CardHeader className="border-b">
         <div className="flex items-start gap-3">
-          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400">
+          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-warning-muted text-warning">
             <Info className="size-5" aria-hidden="true" />
           </span>
           <div>
@@ -690,7 +689,7 @@ function HistoryPanel({
   ];
 
   return (
-    <aside className="self-start xl:sticky xl:top-4">
+    <aside className="self-start xl:sticky xl:top-16">
       <Card className="shadow-none">
         <CardHeader className="flex-row items-start justify-between gap-3 border-b">
           <div>
@@ -784,9 +783,9 @@ function StatusBadge({
       <span
         className={cn(
           "size-1.5 rounded-full",
-          status === "optimal" && "bg-emerald-500",
-          status === "feasible" && "bg-sky-500",
-          status === "unknown" && "bg-amber-500",
+          status === "optimal" && "bg-success",
+          status === "feasible" && "bg-success/70",
+          status === "unknown" && "bg-warning",
           (status === "infeasible" || status === "error") && "bg-destructive",
         )}
       />

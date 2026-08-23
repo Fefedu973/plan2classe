@@ -10,9 +10,10 @@ export function createQueryClient() {
   return new QueryClient({
     queryCache: new QueryCache({
       onError: (error, query) => {
-        toast.error(`Error: ${error.message}`, {
+        toast.error("Chargement impossible", {
+          description: error.message,
           action: {
-            label: "retry",
+            label: "Réessayer",
             onClick: () => {
               query.invalidate();
             },

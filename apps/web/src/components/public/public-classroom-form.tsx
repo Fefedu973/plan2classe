@@ -46,6 +46,8 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { z } from "zod";
 
+import { LinkButton } from "@/components/common/link-button";
+import { OptionSelect } from "@/components/common/option-select";
 import { client, orpc } from "@/utils/orpc";
 
 type PublicResponseInput = z.infer<typeof publicResponseInputSchema>;
@@ -344,7 +346,7 @@ function LoadedPublicClassroomForm({
   }
 
   return (
-    <main className="min-h-0 overflow-y-auto bg-muted/20">
+    <main className="min-h-svh bg-muted/20">
       <div className="border-b bg-background">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
           <Link href="/" className="flex items-center gap-2 text-sm font-semibold">
@@ -586,25 +588,22 @@ function IdentityStep({
 
       <div className="space-y-2">
         <Label htmlFor="participant">Votre nom</Label>
-        <div className="relative">
-          <select
-            id="participant"
-            value={participantId}
-            onChange={(event) => onParticipantChange(event.target.value)}
-            className="h-10 w-full appearance-none rounded-lg border border-input bg-background px-3 pr-10 text-sm outline-none transition-shadow focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-            required
-          >
-            <option value="">Sélectionnez votre nom…</option>
-            {participants.map((participant) => (
-              <option key={participant.id} value={participant.id}>
-                {participant.name}
-              </option>
-            ))}
-          </select>
-          <DoorOpen className="pointer-events-none absolute right-3 top-3 size-4 text-muted-foreground" aria-hidden="true" />
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Votre nom sert uniquement à rattacher vos choix au bon élève.
+        <OptionSelect
+          id="participant"
+          value={participantId}
+          onValueChange={onParticipantChange}
+          options={participants.map((participant) => ({
+            value: participant.id,
+            label: participant.name,
+          }))}
+          placeholder="Sélectionnez votre nom…"
+          emptyLabel="Aucun élève n’est encore inscrit"
+          className="h-11"
+          aria-label="Votre nom"
+        />
+        <p className="flex items-center gap-2 text-xs text-muted-foreground">
+          <DoorOpen className="size-3.5 shrink-0" aria-hidden="true" />
+          Tapez les premières lettres pour trouver votre nom plus vite.
         </p>
       </div>
 
@@ -758,39 +757,41 @@ function SeatMap({
   maxChoices: number;
   onToggle: (id: string) => void;
 }) {
-  const ratio = Math.max(0.55, Math.min(0.82, room.height / room.width));
-
   return (
-    <div className="overflow-x-auto rounded-xl border bg-muted/20 p-3 sm:p-5">
+    <div className="scrollbar-thin overflow-x-auto rounded-xl border bg-muted/20 p-3 sm:p-5">
+      {/* Same projection as the teacher's canvas, so the plan students see is
+          exactly the room that was designed. */}
       <div
-        className="relative mx-auto min-w-[520px] overflow-hidden rounded-lg border bg-background shadow-inner"
-        style={{ aspectRatio: `1 / ${ratio}` }}
+        className="relative mx-auto min-w-[440px] overflow-hidden rounded-lg border bg-background shadow-inner"
+        style={{ aspectRatio: `${room.width} / ${room.height}` }}
         aria-label="Plan interactif de la salle"
       >
         <div
-          className="absolute top-3 h-2 rounded-full bg-foreground/70"
+          className="absolute z-10 flex h-5 items-center justify-center rounded-sm border-2 border-foreground bg-background px-2 text-[9px] font-semibold tracking-wide"
           style={{
-            left: `${Math.max(4, (room.board.x / room.width) * 100)}%`,
-            width: `${Math.min(88, (room.board.width / room.width) * 100)}%`,
-            transform: "translateX(-50%)",
+            left: `${(room.board.x / room.width) * 100}%`,
+            top: `${(room.board.y / room.height) * 100}%`,
+            width: `${(room.board.width / room.width) * 100}%`,
+            transform: `rotate(${room.board.rotation}deg)`,
           }}
-          title={room.board.label}
-        />
+        >
+          <span className="truncate">{room.board.label}</span>
+        </div>
 
         {room.furniture.map((item) => (
           <div
             key={item.id}
             aria-hidden="true"
             className={cn(
-              "absolute border bg-muted/50",
-              item.shape === "ellipse" ? "rounded-full" : "rounded-md",
+              "absolute z-0 border border-foreground/20 bg-muted/60",
+              item.shape === "ellipse" ? "rounded-[999px]" : "rounded-md",
             )}
             style={{
               left: `${(item.x / room.width) * 100}%`,
               top: `${(item.y / room.height) * 100}%`,
-              width: `${Math.max(2, (item.width / room.width) * 100)}%`,
-              height: `${Math.max(2, (item.height / room.height) * 100)}%`,
-              transform: `translate(-50%, -50%) rotate(${item.rotation}deg)`,
+              width: `${Math.max(1, (item.width / room.width) * 100)}%`,
+              height: `${Math.max(1, (item.height / room.height) * 100)}%`,
+              transform: `rotate(${item.rotation}deg)`,
             }}
           />
         ))}
@@ -806,15 +807,15 @@ function SeatMap({
                 key={seat.id}
                 type="button"
                 className={cn(
-                  "absolute z-10 flex h-8 min-w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-md border px-1.5 text-[11px] font-medium shadow-xs transition-all focus-visible:z-20 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+                  "absolute z-20 flex h-8 min-w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-md border px-1.5 text-[11px] font-medium shadow-xs transition-all focus-visible:z-30 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",
                   selected
                     ? "border-foreground bg-foreground text-background ring-2 ring-background"
                     : "bg-background hover:border-foreground hover:bg-muted",
                   full && "cursor-not-allowed opacity-45",
                 )}
                 style={{
-                  left: `${Math.min(97, Math.max(3, (seat.x / room.width) * 100))}%`,
-                  top: `${Math.min(96, Math.max(8, (seat.y / room.height) * 100))}%`,
+                  left: `${(seat.x / room.width) * 100}%`,
+                  top: `${(seat.y / room.height) * 100}%`,
                 }}
                 onClick={() => onToggle(seat.id)}
                 disabled={full}
@@ -829,7 +830,7 @@ function SeatMap({
       </div>
       <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
         <MousePointerClick className="size-3.5" aria-hidden="true" />
-        Le numéro indique votre ordre de préférence.
+        Le numéro indique votre ordre de préférence. Recliquez pour retirer un choix.
       </p>
     </div>
   );
@@ -992,24 +993,20 @@ function NeighborsStep({
                     <Label htmlFor={`relation-${participant.id}`} className="text-xs text-muted-foreground">
                       Relation souhaitée
                     </Label>
-                    <select
+                    <OptionSelect
                       id={`relation-${participant.id}`}
                       value={selectedChoice.relation}
-                      onChange={(event) =>
-                        onRelationChange(
-                          selectedKind,
-                          participant.id,
-                          event.target.value as RankedNeighbor["relation"],
-                        )
+                      onValueChange={(value) =>
+                        onRelationChange(selectedKind, participant.id, value)
                       }
-                      className="h-8 rounded-lg border border-input bg-background px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
-                    >
-                      {relationOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                      options={relationOptions.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                      size="sm"
+                      className="w-44"
+                      aria-label={`Relation souhaitée avec ${participant.name}`}
+                    />
                     <Badge variant="secondary" className="ml-auto">
                       choix n°
                       {(desiredChoice ? desired : avoided).findIndex(
@@ -1194,7 +1191,7 @@ function SubmissionSuccess({
   onEdit: () => void;
 }) {
   return (
-    <main className="min-h-0 overflow-y-auto bg-muted/20 px-4 py-10 sm:py-16">
+    <main className="min-h-svh bg-muted/20 px-4 py-10 sm:py-16">
       <Card className="mx-auto max-w-xl shadow-sm">
         <CardHeader className="items-center px-6 pt-5 text-center sm:px-9">
           <div className="mb-3 grid size-14 place-items-center rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
@@ -1250,9 +1247,7 @@ function SubmissionSuccess({
               Modifier ma réponse
             </Button>
           ) : null}
-          <Button type="button" render={<Link href="/" />}>
-            Terminer
-          </Button>
+          <LinkButton href="/">Terminer</LinkButton>
         </CardFooter>
       </Card>
     </main>
@@ -1273,7 +1268,7 @@ function translateSolveStatus(status: string) {
 
 function PublicFormSkeleton() {
   return (
-    <main className="min-h-0 overflow-y-auto bg-muted/20">
+    <main className="min-h-svh bg-muted/20">
       <div className="border-b bg-background px-4 py-4">
         <div className="mx-auto flex max-w-6xl justify-between">
           <Skeleton className="h-8 w-32" />
@@ -1306,7 +1301,7 @@ function PublicFormSkeleton() {
 
 function PublicFormError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <main className="grid min-h-0 place-items-center overflow-y-auto bg-muted/20 px-4 py-10">
+    <main className="grid min-h-svh place-items-center bg-muted/20 px-4 py-10">
       <Card className="w-full max-w-lg">
         <CardHeader>
           <div className="mb-3 grid size-10 place-items-center rounded-xl bg-destructive/10 text-destructive">
@@ -1325,9 +1320,9 @@ function PublicFormError({ message, onRetry }: { message: string; onRetry: () =>
           </Alert>
         </CardContent>
         <CardFooter className="justify-between gap-3">
-          <Button variant="outline" render={<Link href="/" />}>
+          <LinkButton variant="outline" href="/">
             Retour à l’accueil
-          </Button>
+          </LinkButton>
           <Button type="button" onClick={onRetry}>
             <RefreshCw aria-hidden="true" />
             Réessayer

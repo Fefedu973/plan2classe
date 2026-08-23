@@ -15,7 +15,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
         {children}
         {process.env.NODE_ENV === "development" && <ReactQueryDevtools />}
       </QueryClientProvider>
-      <Toaster richColors />
+      <Toaster richColors closeButton position="bottom-right" duration={5000} />
     </ThemeProvider>
   );
 }

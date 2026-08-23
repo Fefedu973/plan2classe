@@ -5,12 +5,14 @@ import { Badge } from "@plan2classe-app/ui/components/badge";
 import { Button } from "@plan2classe-app/ui/components/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@plan2classe-app/ui/components/card";
 import { Input } from "@plan2classe-app/ui/components/input";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@plan2classe-app/ui/components/input-group";
 import { Label } from "@plan2classe-app/ui/components/label";
 import { Progress } from "@plan2classe-app/ui/components/progress";
 import { Skeleton } from "@plan2classe-app/ui/components/skeleton";
 import { Switch } from "@plan2classe-app/ui/components/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@plan2classe-app/ui/components/tabs";
 import { Textarea } from "@plan2classe-app/ui/components/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@plan2classe-app/ui/components/tooltip";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -18,11 +20,11 @@ import {
   Check,
   CheckCircle2,
   Clipboard,
+  Copy,
   ExternalLink,
   FileText,
   Gauge,
   LayoutGrid,
-  Link2,
   ListChecks,
   LoaderCircle,
   MessageSquareText,
@@ -31,14 +33,16 @@ import {
   SlidersHorizontal,
   Sparkles,
   Trash2,
+  TriangleAlert,
   Users,
 } from "lucide-react";
-import Link from "next/link";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { ConfirmDialog } from "@/components/common/confirm-dialog";
+import { LinkButton } from "@/components/common/link-button";
 import { orpc } from "@/utils/orpc";
 
 import { ConstraintsEditor } from "./constraints-editor";
@@ -75,6 +79,15 @@ const tabItems: Array<{
   { value: "settings", label: "Réglages", icon: Settings2 },
 ];
 
+async function copyToClipboard(value: string, successMessage: string) {
+  try {
+    await navigator.clipboard.writeText(value);
+    toast.success(successMessage);
+  } catch {
+    toast.error("Copie impossible. Sélectionnez le lien puis copiez-le manuellement.");
+  }
+}
+
 function SetupOverview({
   config,
   responseCount,
@@ -92,7 +105,12 @@ function SetupOverview({
   const checks = [
     {
       title: "Salle prête",
-      description: `${seatCount} place${seatCount > 1 ? "s" : ""} active${seatCount > 1 ? "s" : ""}`,
+      description:
+        seatCount === 0
+          ? "Aucune place active"
+          : seatCount < participantCount
+            ? `${seatCount} place${seatCount > 1 ? "s" : ""} pour ${participantCount} élèves`
+            : `${seatCount} place${seatCount > 1 ? "s" : ""} active${seatCount > 1 ? "s" : ""}`,
       done: seatCount > 0 && seatCount >= participantCount,
       tab: "room" as const,
     },
@@ -116,7 +134,9 @@ function SetupOverview({
     },
     {
       title: "Plan optimal calculé",
-      description: hasSolution ? "Un résultat exportable est disponible" : "Lancez le moteur quand vous êtes prêt",
+      description: hasSolution
+        ? "Un résultat exportable est disponible"
+        : "Lancez le moteur quand vous êtes prêt",
       done: hasSolution,
       tab: "solution" as const,
     },
@@ -125,50 +145,54 @@ function SetupOverview({
 
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <Card className="overflow-hidden shadow-none">
-        <CardHeader className="flex-row items-center justify-between border-b">
-          <div>
-            <CardTitle>Aperçu de la salle</CardTitle>
+      <Card className="min-w-0 gap-0 overflow-hidden py-0 shadow-none">
+        <CardHeader className="flex-row items-center justify-between gap-3 border-b px-4 py-4 sm:px-5">
+          <div className="min-w-0">
+            <CardTitle className="text-sm">Aperçu de la salle</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
               Le dernier plan reste affiché pendant que vous préparez le suivant.
             </p>
           </div>
           <Button size="sm" variant="outline" onClick={() => onNavigate("room")}>
-            Modifier
+            <SlidersHorizontal /> Modifier
           </Button>
         </CardHeader>
-        <CardContent className="p-4">
+        <CardContent className="p-4 sm:p-5">
           <RoomCanvas room={config.room} participants={config.participants} className="min-h-96" />
         </CardContent>
       </Card>
 
       <div className="space-y-4">
-        <Card className="shadow-none">
+        <Card className="shadow-none xl:sticky xl:top-4">
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
               <CardTitle className="text-sm">Préparation</CardTitle>
-              <Badge variant="secondary">{completed} / {checks.length}</Badge>
+              <Badge variant="secondary" className="tabular-nums">
+                {completed} / {checks.length}
+              </Badge>
             </div>
             <Progress value={(completed / checks.length) * 100} />
           </CardHeader>
-          <CardContent className="grid gap-1">
+          <CardContent className="grid gap-0.5">
             {checks.map((check) => (
               <button
                 key={check.title}
                 type="button"
                 onClick={() => onNavigate(check.tab)}
-                className="flex items-start gap-3 rounded-lg px-2 py-3 text-left transition-colors hover:bg-muted"
+                className="flex items-start gap-3 rounded-lg px-2 py-2.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
                 <span
-                  className={`mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border ${
-                    check.done ? "border-foreground bg-foreground text-background" : "text-muted-foreground"
+                  className={`mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border text-muted-foreground ${
+                    check.done ? "border-success bg-success text-success-foreground" : ""
                   }`}
                 >
-                  {check.done && <Check className="size-3" />}
+                  {check.done && <Check className="size-3" aria-hidden="true" />}
                 </span>
-                <span>
+                <span className="min-w-0">
                   <span className="block text-sm font-medium">{check.title}</span>
-                  <span className="mt-0.5 block text-xs text-muted-foreground">{check.description}</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    {check.description}
+                  </span>
                 </span>
               </button>
             ))}
@@ -177,14 +201,15 @@ function SetupOverview({
 
         <Card className="border-dashed bg-muted/30 shadow-none">
           <CardContent className="p-5">
-            <BookOpenCheck className="size-5" />
+            <BookOpenCheck className="size-5" aria-hidden="true" />
             <p className="mt-3 text-sm font-medium">Ordre de priorité du moteur</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Faisabilité, équité max-min, satisfaction globale, stabilité puis départage déterministe.
+              Faisabilité, équité max-min, satisfaction globale, stabilité puis départage
+              déterministe.
             </p>
-            <Button className="mt-4" size="sm" variant="outline" render={<Link href="/dashboard/algorithm" />}>
+            <LinkButton className="mt-4" size="sm" variant="outline" href="/dashboard/algorithm">
               Comprendre le calcul
-            </Button>
+            </LinkButton>
           </CardContent>
         </Card>
       </div>
@@ -194,13 +219,19 @@ function SetupOverview({
 
 function LoadingWorkspace() {
   return (
-    <div className="space-y-5 p-4 md:p-6">
-      <div className="flex items-center gap-3">
-        <Skeleton className="size-9 rounded-lg" />
-        <div className="space-y-2"><Skeleton className="h-6 w-56" /><Skeleton className="h-4 w-80" /></div>
+    <div className="mx-auto w-full max-w-[1680px] space-y-5 p-3 md:p-6" aria-busy="true">
+      <div className="flex items-start gap-3">
+        <Skeleton className="size-8 shrink-0 rounded-lg" />
+        <div className="space-y-2">
+          <Skeleton className="h-7 w-56" />
+          <Skeleton className="h-4 w-80" />
+        </div>
       </div>
-      <Skeleton className="h-9 w-full rounded-lg" />
-      <Skeleton className="h-[560px] w-full rounded-2xl" />
+      <Skeleton className="h-11 w-full rounded-lg" />
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <Skeleton className="h-[520px] rounded-2xl" />
+        <Skeleton className="h-80 rounded-2xl" />
+      </div>
     </div>
   );
 }
@@ -215,6 +246,7 @@ export function ClassroomWorkspace({ classroomId }: { classroomId: string }) {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [description, setDescription] = useState("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const classroom = classroomQuery.data?.classroom;
 
@@ -228,7 +260,9 @@ export function ClassroomWorkspace({ classroomId }: { classroomId: string }) {
   }, [classroom]);
 
   const refresh = () =>
-    queryClient.invalidateQueries({ queryKey: orpc.classroom.get.queryKey({ input: { id: classroomId } }) });
+    queryClient.invalidateQueries({
+      queryKey: orpc.classroom.get.queryKey({ input: { id: classroomId } }),
+    });
 
   const save = useMutation({
     ...orpc.classroom.update.mutationOptions(),
@@ -243,6 +277,7 @@ export function ClassroomWorkspace({ classroomId }: { classroomId: string }) {
   const duplicate = useMutation({
     ...orpc.classroom.duplicate.mutationOptions(),
     onSuccess: ({ classroom: copy }) => {
+      void queryClient.invalidateQueries({ queryKey: orpc.classroom.list.queryKey() });
       toast.success("Classe dupliquée");
       router.push(`/dashboard/classes/${copy.id}`);
     },
@@ -251,6 +286,8 @@ export function ClassroomWorkspace({ classroomId }: { classroomId: string }) {
   const remove = useMutation({
     ...orpc.classroom.delete.mutationOptions(),
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: orpc.classroom.list.queryKey() });
+      setDeleteOpen(false);
       toast.success("Classe supprimée");
       router.push("/dashboard");
     },
@@ -270,25 +307,56 @@ export function ClassroomWorkspace({ classroomId }: { classroomId: string }) {
   const publicPath = classroom ? `/f/${classroom.slug}` : "";
   const canPublish = activeParticipants > 0 && seatCount >= activeParticipants;
 
+  const persist = useCallback(() => {
+    if (!config) return;
+    save.mutate({ id: classroomId, name, slug, description, config });
+  }, [classroomId, config, description, name, save, slug]);
+
+  // Editing happens entirely client-side until "Enregistrer", so leaving with
+  // pending edits would silently discard them.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        if (dirty && !save.isPending) persist();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [dirty, persist, save.isPending]);
+
   if (classroomQuery.isLoading || !config) return <LoadingWorkspace />;
   if (classroomQuery.isError || !classroom) {
     return (
       <div className="grid min-h-[60vh] place-items-center p-6 text-center">
-        <div>
-          <h1 className="text-xl font-semibold">Classe introuvable</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Elle a peut-être été supprimée ou ne vous appartient pas.</p>
-          <Button className="mt-5" render={<Link href="/dashboard" />}><ArrowLeft /> Retour aux classes</Button>
+        <div className="max-w-sm">
+          <span className="mx-auto grid size-12 place-items-center rounded-2xl border bg-muted/40">
+            <TriangleAlert className="size-5" aria-hidden="true" />
+          </span>
+          <h1 className="mt-5 text-xl font-semibold tracking-tight">Classe introuvable</h1>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            Elle a peut-être été supprimée ou ne vous appartient pas.
+          </p>
+          <LinkButton className="mt-5" href="/dashboard">
+            <ArrowLeft /> Retour aux classes
+          </LinkButton>
         </div>
       </div>
     );
   }
 
-  const persist = () => {
-    save.mutate({ id: classroomId, name, slug, description, config });
-  };
   const togglePublished = (published: boolean) => {
     if (published && !canPublish) {
-      toast.error("Ajoutez au moins un élève et assez de places avant d’ouvrir le formulaire.");
+      toast.error("Ajoutez au moins un élève et assez de places avant d’ouvrir le formulaire.", {
+        description: `${activeParticipants} élève(s) actif(s) pour ${seatCount} place(s).`,
+      });
       return;
     }
     save.mutate({ id: classroomId, published });
@@ -297,48 +365,80 @@ export function ClassroomWorkspace({ classroomId }: { classroomId: string }) {
   return (
     <main className="mx-auto w-full max-w-[1680px] p-3 md:p-6">
       <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <Button size="icon" variant="ghost" render={<Link href="/dashboard" />} aria-label="Retour aux classes">
+        <div className="flex min-w-0 items-start gap-2">
+          <LinkButton
+            size="icon"
+            variant="ghost"
+            href="/dashboard"
+            aria-label="Retour aux classes"
+            className="mt-0.5 shrink-0"
+          >
             <ArrowLeft />
-          </Button>
+          </LinkButton>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="truncate text-2xl font-semibold tracking-tight">{classroom.name}</h1>
+              <h1 className="min-w-0 truncate text-2xl font-semibold tracking-tight">
+                {classroom.name}
+              </h1>
               <Badge variant={classroom.published ? "default" : "secondary"}>
                 {classroom.published ? "Formulaire ouvert" : "Brouillon"}
               </Badge>
-              {dirty && <Badge variant="outline">Non enregistré</Badge>}
+              {dirty && (
+                <Badge variant="outline" className="gap-1.5 border-warning/50 text-warning">
+                  <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
+                  Non enregistré
+                </Badge>
+              )}
             </div>
-            <p className="mt-1 line-clamp-2 max-w-3xl text-sm text-muted-foreground">
-              {classroom.description || "Préparez la salle, collectez les souhaits et calculez le plan le plus équitable."}
+            <p className="mt-1 line-clamp-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+              {classroom.description ||
+                "Préparez la salle, collectez les souhaits et calculez le plan le plus équitable."}
             </p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex h-9 items-center gap-2 rounded-lg border bg-card px-3">
-            <Switch
-              checked={classroom.published}
-              onCheckedChange={togglePublished}
-              disabled={save.isPending}
-              aria-label="Ouvrir le formulaire public"
-            />
-            <span className="text-xs font-medium">Collecte</span>
-          </div>
+          <Tooltip>
+            <TooltipTrigger
+              render={<div className="flex h-8 items-center gap-2 rounded-lg border bg-card px-3" />}
+            >
+              <Switch
+                checked={classroom.published}
+                onCheckedChange={togglePublished}
+                disabled={save.isPending}
+                aria-label="Ouvrir le formulaire public"
+              />
+              <span className="text-xs font-medium">Collecte</span>
+            </TooltipTrigger>
+            <TooltipContent>
+              {classroom.published
+                ? "Le formulaire public accepte les réponses."
+                : "Ouvrez la collecte pour partager le formulaire aux élèves."}
+            </TooltipContent>
+          </Tooltip>
           <Button
             size="sm"
             variant="outline"
             disabled={!classroom.published}
-            onClick={() => {
-              void navigator.clipboard.writeText(new URL(publicPath, window.location.origin).toString());
-              toast.success("Lien public copié");
-            }}
+            onClick={() =>
+              void copyToClipboard(
+                new URL(publicPath, window.location.origin).toString(),
+                "Lien public copié",
+              )
+            }
           >
             <Clipboard /> Copier le lien
           </Button>
-          <Button size="sm" variant="outline" render={<Link href={publicPath as Route} target="_blank" />}>
+          <LinkButton
+            size="sm"
+            variant="outline"
+            disabled={!classroom.published}
+            href={publicPath as Route}
+            target="_blank"
+            rel="noreferrer"
+          >
             <ExternalLink /> Ouvrir
-          </Button>
+          </LinkButton>
           <Button size="sm" onClick={persist} disabled={!dirty || save.isPending}>
             {save.isPending ? <LoaderCircle className="animate-spin" /> : <Save />}
             Enregistrer
@@ -347,15 +447,23 @@ export function ClassroomWorkspace({ classroomId }: { classroomId: string }) {
       </div>
 
       <Tabs value={tab} onValueChange={(value) => setTab(value as WorkspaceTab)}>
-        <div className="mb-5 overflow-x-auto border-b">
-          <TabsList variant="line" className="h-11 min-w-max">
-            {tabItems.map((item) => (
-              <TabsTrigger key={item.value} value={item.value} className="px-3">
-                <item.icon /> {item.label}
-                {item.value === "responses" && responseCount > 0 && <Badge className="h-5 px-1.5">{responseCount}</Badge>}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+        {/* Sticky inside the dashboard scroll column; `overflow-y-hidden` keeps
+            the horizontal strip from growing a stray vertical scrollbar. */}
+        <div className="sticky top-0 z-20 -mx-3 mb-5 border-b bg-background/85 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/70 md:-mx-6 md:px-6">
+          <div className="scrollbar-none overflow-x-auto overflow-y-hidden">
+            <TabsList variant="line" className="h-11 w-full min-w-max justify-start gap-1">
+              {tabItems.map((item) => (
+                <TabsTrigger key={item.value} value={item.value} className="flex-none px-3">
+                  <item.icon /> {item.label}
+                  {item.value === "responses" && responseCount > 0 && (
+                    <Badge variant="secondary" className="h-5 px-1.5 tabular-nums">
+                      {responseCount}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
         </div>
 
         <TabsContent value="overview">
@@ -372,6 +480,7 @@ export function ClassroomWorkspace({ classroomId }: { classroomId: string }) {
         <TabsContent value="participants">
           <ParticipantsEditor
             participants={config.participants}
+            seatCount={seatCount}
             onChange={(participants) => updateConfig({ ...config, participants })}
           />
         </TabsContent>
@@ -392,7 +501,9 @@ export function ClassroomWorkspace({ classroomId }: { classroomId: string }) {
             onChange={(form) => updateConfig({ ...config, form })}
           />
         </TabsContent>
-        <TabsContent value="responses"><ResponsesView classroomId={classroomId} /></TabsContent>
+        <TabsContent value="responses">
+          <ResponsesView classroomId={classroomId} />
+        </TabsContent>
         <TabsContent value="solution">
           <SolutionView
             classroomId={classroomId}
@@ -403,48 +514,121 @@ export function ClassroomWorkspace({ classroomId }: { classroomId: string }) {
         </TabsContent>
         <TabsContent value="settings">
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-            <div className="space-y-5">
+            <div className="min-w-0 space-y-5">
               <Card className="shadow-none">
-                <CardHeader><CardTitle>Informations</CardTitle></CardHeader>
+                <CardHeader>
+                  <CardTitle className="text-sm">Informations</CardTitle>
+                </CardHeader>
                 <CardContent className="grid gap-5">
-                  <div className="grid gap-2"><Label htmlFor="class-name">Nom</Label><Input id="class-name" value={name} onChange={(event) => { setName(event.target.value); setDirty(true); }} /></div>
-                  <div className="grid gap-2"><Label htmlFor="class-description">Description</Label><Textarea id="class-description" value={description} onChange={(event) => { setDescription(event.target.value); setDirty(true); }} /></div>
-                  <div className="grid gap-2"><Label htmlFor="class-slug">Adresse publique</Label><div className="flex items-center gap-2"><Link2 className="size-4 text-muted-foreground" /><Input id="class-slug" value={slug} onChange={(event) => { setSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "")); setDirty(true); }} /></div></div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="class-name">Nom</Label>
+                    <Input
+                      id="class-name"
+                      value={name}
+                      onChange={(event) => {
+                        setName(event.target.value);
+                        setDirty(true);
+                      }}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="class-description">Description</Label>
+                    <Textarea
+                      id="class-description"
+                      className="min-h-24"
+                      value={description}
+                      onChange={(event) => {
+                        setDescription(event.target.value);
+                        setDirty(true);
+                      }}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="class-slug">Adresse publique</Label>
+                    <InputGroup>
+                      <InputGroupAddon>/f/</InputGroupAddon>
+                      <InputGroupInput
+                        id="class-slug"
+                        value={slug}
+                        spellCheck={false}
+                        autoCapitalize="none"
+                        onChange={(event) => {
+                          setSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""));
+                          setDirty(true);
+                        }}
+                      />
+                    </InputGroup>
+                    <p className="text-xs text-muted-foreground">
+                      Lettres minuscules, chiffres et tirets. Changer l’adresse invalide les liens
+                      déjà distribués.
+                    </p>
+                  </div>
                 </CardContent>
               </Card>
               <Card className="shadow-none">
-                <CardHeader><CardTitle>Réglages du solveur</CardTitle></CardHeader>
+                <CardHeader>
+                  <CardTitle className="text-sm">Réglages du solveur</CardTitle>
+                </CardHeader>
                 <CardContent>
-                  <SolverSettingsEditor settings={config.settings} onChange={(settings) => updateConfig({ ...config, settings })} />
+                  <SolverSettingsEditor
+                    settings={config.settings}
+                    onChange={(settings) => updateConfig({ ...config, settings })}
+                  />
                 </CardContent>
               </Card>
             </div>
-            <div className="space-y-4">
+            <div className="space-y-4 xl:sticky xl:top-4 xl:self-start">
               <Card className="shadow-none">
-                <CardHeader><CardTitle className="text-sm">Gestion</CardTitle></CardHeader>
-                <CardContent className="grid gap-2">
-                  <Button variant="outline" disabled={duplicate.isPending} onClick={() => duplicate.mutate({ id: classroomId })}>Dupliquer cette classe</Button>
-                  <Button
-                    variant="destructive"
-                    disabled={remove.isPending}
-                    onClick={() => {
-                      if (window.confirm(`Supprimer définitivement « ${classroom.name} » et toutes ses réponses ?`)) remove.mutate({ id: classroomId });
-                    }}
+                <CardContent className="p-5">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <Gauge className="size-4" aria-hidden="true" /> Capacité
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-center">
+                    <div className="rounded-lg bg-muted p-3">
+                      <p className="text-xl font-semibold tabular-nums">{activeParticipants}</p>
+                      <p className="text-xs text-muted-foreground">élèves</p>
+                    </div>
+                    <div className="rounded-lg bg-muted p-3">
+                      <p className="text-xl font-semibold tabular-nums">{seatCount}</p>
+                      <p className="text-xs text-muted-foreground">places</p>
+                    </div>
+                  </div>
+                  <p
+                    className={`mt-3 flex items-center gap-1.5 text-xs ${canPublish ? "text-success" : "text-warning"}`}
                   >
-                    <Trash2 /> Supprimer
-                  </Button>
+                    {canPublish ? (
+                      <CheckCircle2 className="size-3.5" aria-hidden="true" />
+                    ) : (
+                      <TriangleAlert className="size-3.5" aria-hidden="true" />
+                    )}
+                    {canPublish
+                      ? "La classe peut être publiée."
+                      : "Il manque des places ou des élèves."}
+                  </p>
                 </CardContent>
               </Card>
               <Card className="shadow-none">
-                <CardContent className="p-5">
-                  <div className="flex items-center gap-2 text-sm font-medium"><Gauge className="size-4" /> Capacité</div>
-                  <div className="mt-4 grid grid-cols-2 gap-3 text-center">
-                    <div className="rounded-lg bg-muted p-3"><p className="text-xl font-semibold tabular-nums">{activeParticipants}</p><p className="text-xs text-muted-foreground">élèves</p></div>
-                    <div className="rounded-lg bg-muted p-3"><p className="text-xl font-semibold tabular-nums">{seatCount}</p><p className="text-xs text-muted-foreground">places</p></div>
-                  </div>
-                  <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-                    {canPublish ? <CheckCircle2 className="size-3.5" /> : <ListChecks className="size-3.5" />}
-                    {canPublish ? "La classe peut être publiée." : "Il manque des places ou des élèves."}
+                <CardHeader>
+                  <CardTitle className="text-sm">Gestion</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-2">
+                  <Button
+                    variant="outline"
+                    disabled={duplicate.isPending}
+                    onClick={() => duplicate.mutate({ id: classroomId })}
+                  >
+                    {duplicate.isPending ? (
+                      <LoaderCircle className="animate-spin" />
+                    ) : (
+                      <Copy />
+                    )}
+                    Dupliquer cette classe
+                  </Button>
+                  <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
+                    <Trash2 /> Supprimer
+                  </Button>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    La suppression retire aussi les réponses et l’historique des plans.
                   </p>
                 </CardContent>
               </Card>
@@ -452,6 +636,23 @@ export function ClassroomWorkspace({ classroomId }: { classroomId: string }) {
           </div>
         </TabsContent>
       </Tabs>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Supprimer cette classe ?"
+        description={`« ${classroom.name} » sera définitivement supprimée. Cette action est irréversible.`}
+        detail={
+          <>
+            Seront également supprimés : {responseCount} réponse
+            {responseCount > 1 ? "s" : ""} d’élèves, l’historique des plans calculés et le lien
+            public <span className="font-mono">{publicPath}</span>.
+          </>
+        }
+        confirmLabel="Supprimer définitivement"
+        pending={remove.isPending}
+        onConfirm={() => remove.mutate({ id: classroomId })}
+      />
     </main>
   );
 }
