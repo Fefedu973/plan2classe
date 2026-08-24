@@ -6,7 +6,6 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@plan2classe-app/ui/components/dropdown-menu";
@@ -63,12 +62,12 @@ export default function UserMenu() {
         <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56 bg-card">
-        <DropdownMenuLabel className="grid gap-0.5">
+        {/* Not a DropdownMenuLabel: that maps to Base UI's `Menu.GroupLabel`,
+            which throws unless it sits inside a `Menu.Group`. */}
+        <div className="grid gap-0.5 px-1.5 py-1">
           <span className="truncate text-sm font-medium">{name}</span>
-          <span className="truncate font-mono text-xs font-normal text-muted-foreground">
-            @{handle}
-          </span>
-        </DropdownMenuLabel>
+          <span className="truncate font-mono text-xs text-muted-foreground">@{handle}</span>
+        </div>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuItem render={<Link href="/dashboard" />}>

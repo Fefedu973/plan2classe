@@ -12,7 +12,6 @@ import { Separator } from "@plan2classe-app/ui/components/separator";
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -28,7 +27,7 @@ import {
 import { Skeleton } from "@plan2classe-app/ui/components/skeleton";
 import { TooltipProvider } from "@plan2classe-app/ui/components/tooltip";
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, LayoutDashboard, Plus, School, Sparkles } from "lucide-react";
+import { BookOpen, LayoutDashboard, Plus, School } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -194,20 +193,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </SidebarGroup>
             <ClassroomNav activeId={activeClassroomId} />
           </SidebarContent>
-          <SidebarFooter className="p-3">
-            <div className="flex items-center gap-2 rounded-lg border bg-background p-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:bg-transparent group-data-[collapsible=icon]:p-0">
-              <Sparkles className="size-4 shrink-0 text-warning" />
-              <p className="text-xs leading-4 text-muted-foreground group-data-[collapsible=icon]:hidden">
-                Calcul exact par OR-Tools
-              </p>
-            </div>
-          </SidebarFooter>
           <SidebarRail />
         </Sidebar>
         <SidebarInset className="min-h-0 min-w-0 overflow-hidden">
           <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3 sm:px-4">
             <SidebarTrigger />
-            <Separator orientation="vertical" className="hidden h-5 sm:block" />
+            <Separator
+              orientation="vertical"
+              className="hidden h-5 data-vertical:self-center sm:block"
+            />
             <div className="min-w-0 flex-1">
               <AppBreadcrumb pathname={pathname} />
             </div>

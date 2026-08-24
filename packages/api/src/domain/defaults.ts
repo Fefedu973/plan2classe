@@ -157,14 +157,27 @@ export function buildClassicRoom(options?: {
   };
 }
 
-export function createDefaultClassroomConfig(template: "blank" | "demo" = "blank"): ClassroomConfig {
+export type ClassroomTemplate = "empty" | "blank" | "demo";
+
+/** A room with the board and dimensions set, but nothing placed in it yet. */
+function buildEmptyRoom(): Room {
+  const room = buildClassicRoom();
+  return { ...room, furniture: [], seats: [], relations: [] };
+}
+
+export function createDefaultClassroomConfig(
+  template: ClassroomTemplate = "blank",
+): ClassroomConfig {
   const isDemo = template === "demo";
   return {
-    room: buildClassicRoom(
-      isDemo
-        ? { rows: 5, doubleTablesPerRow: 4, partialLastRowTables: 2 }
-        : { rows: 4, doubleTablesPerRow: 4 },
-    ),
+    room:
+      template === "empty"
+        ? buildEmptyRoom()
+        : buildClassicRoom(
+            isDemo
+              ? { rows: 5, doubleTablesPerRow: 4, partialLastRowTables: 2 }
+              : { rows: 4, doubleTablesPerRow: 4 },
+          ),
     participants: isDemo ? demoStudentNames.map(createParticipant) : [],
     rules: [],
     settings: {

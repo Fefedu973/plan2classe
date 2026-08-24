@@ -39,7 +39,7 @@ const classroomRouter = {
       z.object({
         name: z.string().trim().min(1).max(180),
         description: z.string().max(2_000).optional(),
-        template: z.enum(["blank", "demo"]),
+        template: z.enum(["empty", "blank", "demo"]),
       }),
     )
     .handler(({ context, input }) =>

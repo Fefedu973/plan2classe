@@ -28,6 +28,7 @@ import {
   Clock3,
   LayoutGrid,
   LoaderCircle,
+  PenLine,
   Plus,
   Search,
   Sparkles,
@@ -42,6 +43,28 @@ import { toast } from "sonner";
 import { orpc } from "@/utils/orpc";
 
 const dateFormatter = new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" });
+
+type TemplateId = "empty" | "blank";
+
+const templates: ReadonlyArray<{
+  id: TemplateId;
+  title: string;
+  description: string;
+  icon: typeof LayoutGrid;
+}> = [
+  {
+    id: "blank",
+    title: "Salle standard",
+    description: "4 rangées de tables doubles, 32 places prêtes à ajuster.",
+    icon: LayoutGrid,
+  },
+  {
+    id: "empty",
+    title: "Démarrer de zéro",
+    description: "Une salle vide : vous placez vous-même chaque table.",
+    icon: PenLine,
+  },
+];
 
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
@@ -75,7 +98,7 @@ function CreateClassDialog({
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [template, setTemplate] = useState<"blank" | "demo">("blank");
+  const [template, setTemplate] = useState<TemplateId>("blank");
   const create = useMutation({
     ...orpc.classroom.create.mutationOptions(),
     onSuccess: ({ classroom }) => {
@@ -137,36 +160,24 @@ function CreateClassDialog({
             <fieldset className="grid gap-2">
               <legend className="mb-1 text-sm font-medium">Point de départ</legend>
               <div className="grid gap-2 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => setTemplate("blank")}
-                  aria-pressed={template === "blank"}
-                  className={cn(
-                    "rounded-xl border p-4 text-left transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",
-                    template === "blank" ? "border-foreground bg-muted" : "hover:bg-muted/50",
-                  )}
-                >
-                  <LayoutGrid className="mb-3 size-5" aria-hidden="true" />
-                  <span className="block text-sm font-medium">Salle standard</span>
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    32 places, sans élève
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTemplate("demo")}
-                  aria-pressed={template === "demo"}
-                  className={cn(
-                    "rounded-xl border p-4 text-left transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",
-                    template === "demo" ? "border-foreground bg-muted" : "hover:bg-muted/50",
-                  )}
-                >
-                  <Sparkles className="mb-3 size-5" aria-hidden="true" />
-                  <span className="block text-sm font-medium">Démonstration complète</span>
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    36 élèves et salle A1–E4
-                  </span>
-                </button>
+                {templates.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setTemplate(option.id)}
+                    aria-pressed={template === option.id}
+                    className={cn(
+                      "rounded-xl border p-4 text-left transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",
+                      template === option.id ? "border-foreground bg-muted" : "hover:bg-muted/50",
+                    )}
+                  >
+                    <option.icon className="mb-3 size-5" aria-hidden="true" />
+                    <span className="block text-sm font-medium">{option.title}</span>
+                    <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                      {option.description}
+                    </span>
+                  </button>
+                ))}
               </div>
             </fieldset>
           </div>

@@ -2,7 +2,12 @@ import { ORPCError } from "@orpc/server";
 import { and, count, desc, eq, inArray, ne, type Database } from "@plan2classe-app/db";
 import { classrooms, formResponses, solutions } from "@plan2classe-app/db/schema/classroom";
 
-import { createAccessCode, createDefaultClassroomConfig, newId } from "../domain/defaults";
+import {
+  type ClassroomTemplate,
+  createAccessCode,
+  createDefaultClassroomConfig,
+  newId,
+} from "../domain/defaults";
 import {
   classroomConfigSchema,
   preferenceResponseSchema,
@@ -134,7 +139,7 @@ export async function getOwnedClassroomBundle(
 export async function createClassroom(
   database: Database,
   ownerId: string,
-  input: { name: string; description?: string; template: "blank" | "demo" },
+  input: { name: string; description?: string; template: ClassroomTemplate },
 ) {
   const now = new Date();
   const name = input.name.trim();

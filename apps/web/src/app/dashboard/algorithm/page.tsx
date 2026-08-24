@@ -5,6 +5,7 @@ import {
   ArrowRight,
   CheckCircle2,
   GitBranch,
+  MessageCircleQuestion,
   Network,
   Scale,
   ShieldCheck,
@@ -61,6 +62,29 @@ const principles = [
     icon: ShieldCheck,
     title: "Chaque solution est vérifiée deux fois",
     text: "Après le solveur, un validateur indépendant relit l’affectation sans réutiliser le modèle CP-SAT. Une solution n’est déclarée fiable que si toutes les règles dures passent cette seconde vérification.",
+  },
+] as const;
+
+const wishes = [
+  {
+    question: "Et si un souhait de voisinage n’est pas réciproque ?",
+    answer:
+      "Il compte quand même. Un souhait crédite uniquement l’élève qui l’a formulé : si Alice demande Bob sans que Bob la demande, seule la satisfaction d’Alice augmente lorsqu’ils sont voisins. La réciprocité n’est jamais exigée.",
+  },
+  {
+    question: "Et si l’un demande l’autre, mais que l’autre l’évite ?",
+    answer:
+      "Les deux effets s’additionnent avec leur signe : le souhait crédite le premier, l’évitement pénalise le second. Comme un évitement pèse plus lourd qu’un souhait par défaut, le moteur tend à les séparer. Le rapport entre les deux se règle dans les poids du solveur.",
+  },
+  {
+    question: "Deux élèves qui se choisissent mutuellement sont-ils avantagés ?",
+    answer:
+      "Oui, légèrement. Un souhait réciproque ajoute un bonus partagé, volontairement faible pour qu’un groupe d’amis ne puisse pas capter l’objectif d’équité au détriment des autres.",
+  },
+  {
+    question: "Un élève peut-il répondre « pas de préférence » ?",
+    answer:
+      "Oui, de deux façons : en ne sélectionnant simplement aucune place ni aucun voisin, et via l’option d’arbitrage « Aucune priorité ». Un élève qui ne répond pas du tout reste placé, avec une satisfaction neutre qui ne le désavantage pas.",
   },
 ] as const;
 
@@ -125,6 +149,26 @@ export default function AlgorithmPage() {
           </section>
         ))}
       </div>
+
+      <section aria-label="Traitement des souhaits" className="mt-10">
+        <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+          Ce que le moteur fait des souhaits
+        </h2>
+        <dl className="mt-4 grid gap-4 md:grid-cols-2">
+          {wishes.map((item) => (
+            <div key={item.question} className="rounded-2xl border p-5">
+              <dt className="flex items-start gap-2.5 font-medium">
+                <MessageCircleQuestion
+                  className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                {item.question}
+              </dt>
+              <dd className="mt-2 pl-6.5 text-sm leading-6 text-muted-foreground">{item.answer}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
 
       <div className="mt-10 rounded-2xl bg-foreground p-6 text-background sm:p-8">
         <div className="flex items-start gap-3">

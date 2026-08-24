@@ -1,7 +1,7 @@
 "use client";
 
 import { createParticipant } from "@plan2classe-app/api/domain/defaults";
-import type { Participant } from "@plan2classe-app/api/schemas/classroom";
+import type { Participant, SolverSettings } from "@plan2classe-app/api/schemas/classroom";
 import { Badge } from "@plan2classe-app/ui/components/badge";
 import { Button } from "@plan2classe-app/ui/components/button";
 import {
@@ -45,10 +45,12 @@ import {
   Eye,
   EyeOff,
   FileUp,
+  GraduationCap,
   Hand,
   MoreHorizontal,
   Plus,
   Search,
+  Settings2,
   ShieldCheck,
   Trash2,
   TriangleAlert,
@@ -60,6 +62,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
+import { KeyValueTagInput } from "@/components/common/tag-input";
 import { OptionSelect, type SelectOption } from "@/components/common/option-select";
 
 const handednessOptions: ReadonlyArray<SelectOption<Participant["handedness"]>> = [
@@ -204,6 +207,103 @@ function HeadHint({ label, hint }: { label: React.ReactNode; hint: string }) {
   );
 }
 
+/**
+ * The numeric columns only mean something through the solver settings, and
+ * several are off by default. Rather than describe them in the abstract, this
+ * reports what the current configuration actually does with them.
+ */
+function ColumnEffects({
+  settings,
+  onOpenSettings,
+}: {
+  settings: SolverSettings;
+  onOpenSettings?: () => void;
+}) {
+  const gradeUsed = settings.grade_balance_weight > 0 || settings.grade_mix_weight > 0;
+  const rows: ReadonlyArray<{ icon: typeof Eye; column: string; effect: string; active: boolean }> = [
+    {
+      icon: GraduationCap,
+      column: "Note",
+      effect: gradeUsed
+        ? [
+            settings.grade_balance_weight > 0
+              ? "équilibre la moyenne de chaque table"
+              : null,
+            settings.grade_mix_weight > 0
+              ? `favorise les voisins avec au moins ${settings.grade_mix_min_difference} points d’écart`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" et ")
+        : "ignorée : activez « Équilibre des notes » ou « Mix de niveaux » dans les réglages",
+      active: gradeUsed,
+    },
+    {
+      icon: Hand,
+      column: "Main",
+      effect:
+        settings.hand_collision === "off"
+          ? "ignorée : la collision droitier / gaucher est désactivée"
+          : settings.hand_collision === "hard"
+            ? "contrainte dure : deux voisins ne peuvent pas se gêner du coude"
+            : "souhait pondéré : le moteur évite la gêne du coude si possible",
+      active: settings.hand_collision !== "off",
+    },
+    {
+      icon: Eye,
+      column: "Vision",
+      effect:
+        settings.vision_weight > 0
+          ? settings.accessibility_hard
+            ? `rapproche du tableau ; les niveaux 3 à 5 sont une contrainte dure (${Math.round(settings.hard_front_fraction * 100)} % de places avant)`
+            : "rapproche du tableau, en souhait pondéré"
+          : "ignorée : le poids du besoin visuel est à 0",
+      active: settings.vision_weight > 0,
+    },
+    {
+      icon: Ear,
+      column: "Audition",
+      effect:
+        settings.hearing_weight > 0
+          ? "rapproche de l’avant de la salle, en souhait pondéré"
+          : "ignorée : le poids du besoin auditif est à 0",
+      active: settings.hearing_weight > 0,
+    },
+  ];
+
+  return (
+    <div className="rounded-xl border bg-muted/20 p-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="text-xs font-medium">Ce que le moteur fait de ces colonnes, aujourd’hui</p>
+        {onOpenSettings ? (
+          <Button size="xs" variant="ghost" onClick={onOpenSettings}>
+            <Settings2 /> Régler
+          </Button>
+        ) : null}
+      </div>
+      <dl className="grid gap-1.5 sm:grid-cols-2">
+        {rows.map((row) => (
+          <div key={row.column} className="flex items-start gap-2 text-xs leading-5">
+            <row.icon
+              className={cn(
+                "mt-0.5 size-3.5 shrink-0",
+                row.active ? "text-foreground" : "text-muted-foreground/60",
+              )}
+              aria-hidden="true"
+            />
+            <div className="min-w-0">
+              <dt className={cn("font-medium", !row.active && "text-muted-foreground")}>
+                {row.column}
+              </dt>
+              <dd className="text-muted-foreground">{row.effect}</dd>
+            </div>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 function AccessCodeButton({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -232,10 +332,14 @@ function AccessCodeButton({ code }: { code: string }) {
 export function ParticipantsEditor({
   participants,
   seatCount,
+  settings,
+  onOpenSettings,
   onChange,
 }: {
   participants: Participant[];
   seatCount?: number;
+  settings?: SolverSettings;
+  onOpenSettings?: () => void;
   onChange: (participants: Participant[]) => void;
 }) {
   const [name, setName] = useState("");
@@ -244,6 +348,20 @@ export function ParticipantsEditor({
   const [importOpen, setImportOpen] = useState(false);
   const [pendingRemoval, setPendingRemoval] = useState<Participant | null>(null);
   const [removeInactiveOpen, setRemoveInactiveOpen] = useState(false);
+
+  // Suggest the keys already in use so tagging stays consistent across a class.
+  const tagSuggestions = useMemo(() => {
+    const keys = new Set<string>();
+    for (const participant of participants) {
+      for (const [key, value] of Object.entries(participant.tags)) {
+        keys.add(value === "true" ? key : `${key}:${value}`);
+      }
+    }
+    for (const fallback of ["genre:F", "genre:M", "groupe:1", "groupe:2", "accessible"]) {
+      keys.add(fallback);
+    }
+    return [...keys].sort((a, b) => a.localeCompare(b, "fr"));
+  }, [participants]);
 
   const activeCount = participants.filter((participant) => participant.active).length;
   const inactiveCount = participants.length - activeCount;
@@ -391,6 +509,8 @@ export function ParticipantsEditor({
         </div>
       </div>
 
+      {settings ? <ColumnEffects settings={settings} onOpenSettings={onOpenSettings} /> : null}
+
       <p className="flex items-start gap-2 text-xs leading-5 text-muted-foreground">
         <ShieldCheck className="mt-px size-3.5 shrink-0" aria-hidden="true" />
         Les besoins visuels, auditifs et les codes personnels ne sont jamais exposés dans le
@@ -489,13 +609,11 @@ export function ParticipantsEditor({
                       />
                     </TableCell>
                     <TableCell>
-                      <Input
-                        value={serializeTags(participant.tags)}
-                        onChange={(event) =>
-                          update(participant.id, { tags: parseTags(event.target.value) })
-                        }
-                        placeholder="genre:F, groupe:1"
-                        className="min-w-52 font-mono text-xs"
+                      <KeyValueTagInput
+                        className="min-w-56"
+                        value={participant.tags}
+                        onChange={(tags) => update(participant.id, { tags })}
+                        suggestions={tagSuggestions}
                         aria-label={`Tags de ${participant.name}`}
                       />
                     </TableCell>

@@ -6,6 +6,8 @@ import { useRender } from "@base-ui/react/use-render"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { useIsMobile } from "@plan2classe-app/ui/hooks/use-mobile"
+import { useSidebarResize } from "@plan2classe-app/ui/hooks/use-sidebar-resize"
+import { mergeButtonRefs } from "@plan2classe-app/ui/lib/merge-button-refs"
 import { cn } from "@plan2classe-app/ui/lib/utils"
 import { Button } from "@plan2classe-app/ui/components/button"
 import { Input } from "@plan2classe-app/ui/components/input"
@@ -31,6 +33,8 @@ const SIDEBAR_WIDTH = "16rem"
 const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
+const MIN_SIDEBAR_WIDTH = "13rem"
+const MAX_SIDEBAR_WIDTH = "22rem"
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed"
@@ -40,6 +44,10 @@ type SidebarContextProps = {
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
   toggleSidebar: () => void
+  width: string
+  setWidth: (width: string) => void
+  isDraggingRail: boolean
+  setIsDraggingRail: (isDragging: boolean) => void
 }
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
@@ -60,14 +68,18 @@ function SidebarProvider({
   className,
   style,
   children,
+  defaultWidth = SIDEBAR_WIDTH,
   ...props
 }: React.ComponentProps<"div"> & {
   defaultOpen?: boolean
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  defaultWidth?: string
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
+  const [width, setWidth] = React.useState(defaultWidth)
+  const [isDraggingRail, setIsDraggingRail] = React.useState(false)
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
@@ -122,8 +134,22 @@ function SidebarProvider({
       openMobile,
       setOpenMobile,
       toggleSidebar,
+      width,
+      setWidth,
+      isDraggingRail,
+      setIsDraggingRail,
     }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
+    [
+      state,
+      open,
+      setOpen,
+      isMobile,
+      openMobile,
+      setOpenMobile,
+      toggleSidebar,
+      width,
+      isDraggingRail,
+    ]
   )
 
   return (
@@ -132,7 +158,7 @@ function SidebarProvider({
         data-slot="sidebar-wrapper"
         style={
           {
-            "--sidebar-width": SIDEBAR_WIDTH,
+            "--sidebar-width": width,
             "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
             ...style,
           } as React.CSSProperties
@@ -162,7 +188,7 @@ function Sidebar({
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const { isMobile, state, openMobile, setOpenMobile, isDraggingRail } = useSidebar()
 
   if (collapsible === "none") {
     return (
@@ -213,6 +239,7 @@ function Sidebar({
       data-variant={variant}
       data-side={side}
       data-slot="sidebar"
+      data-dragging={isDraggingRail}
     >
       {/* This is what handles the sidebar gap on desktop */}
       <div
@@ -223,7 +250,8 @@ function Sidebar({
           "group-data-[side=right]:rotate-180",
           variant === "floating" || variant === "inset"
             ? "group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4)))]"
-            : "group-data-[collapsible=icon]:w-(--sidebar-width-icon)"
+            : "group-data-[collapsible=icon]:w-(--sidebar-width-icon)",
+          "group-data-[dragging=true]:duration-0!"
         )}
       />
       <div
@@ -235,6 +263,7 @@ function Sidebar({
           variant === "floating" || variant === "inset"
             ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"
             : "group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[side=left]:border-r group-data-[side=right]:border-l",
+          "group-data-[dragging=true]:duration-0!",
           className
         )}
         {...props}
@@ -277,22 +306,85 @@ function SidebarTrigger({
   )
 }
 
-function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
-  const { toggleSidebar } = useSidebar()
+function SidebarRail({
+  className,
+  enableDrag = true,
+  ...props
+}: React.ComponentProps<"button"> & { enableDrag?: boolean }) {
+  const { toggleSidebar, setWidth, state, width, setIsDraggingRail } = useSidebar()
+  const railRef = React.useRef<HTMLButtonElement>(null)
+  const [isInsetVariant, setIsInsetVariant] = React.useState(false)
+  const [railStyles, setRailStyles] = React.useState<React.CSSProperties>({})
+
+  // The inset variant floats the panel inside a margin, so the rail has to
+  // follow that box rather than span the whole viewport height.
+  React.useEffect(() => {
+    const rail = railRef.current
+    if (!rail) return
+
+    const variant = rail.closest("[data-variant]")?.getAttribute("data-variant")
+    setIsInsetVariant(variant === "inset")
+    if (variant !== "inset") {
+      setRailStyles({})
+      return
+    }
+
+    const updateRailPosition = () => {
+      const inset = document.querySelector('[data-slot="sidebar-inset"]')
+      if (!inset) return
+      const rect = inset.getBoundingClientRect()
+      const cornerBuffer = 12
+      setRailStyles({
+        top: `${Math.max(0, rect.top + cornerBuffer)}px`,
+        bottom: `${Math.max(0, window.innerHeight - rect.bottom + cornerBuffer)}px`,
+        height: "auto",
+      })
+    }
+
+    updateRailPosition()
+    window.addEventListener("scroll", updateRailPosition, true)
+    window.addEventListener("resize", updateRailPosition)
+    return () => {
+      window.removeEventListener("scroll", updateRailPosition, true)
+      window.removeEventListener("resize", updateRailPosition)
+    }
+  }, [])
+
+  const { dragRef, handleMouseDown } = useSidebarResize({
+    direction: "right",
+    enableDrag,
+    onResize: setWidth,
+    onToggle: toggleSidebar,
+    currentWidth: width,
+    isCollapsed: state === "collapsed",
+    minResizeWidth: MIN_SIDEBAR_WIDTH,
+    maxResizeWidth: MAX_SIDEBAR_WIDTH,
+    setIsDraggingRail,
+    widthCookieName: "sidebar_width",
+    widthCookieMaxAge: SIDEBAR_COOKIE_MAX_AGE,
+  })
+
+  const combinedRef = React.useMemo(
+    () => mergeButtonRefs([railRef, dragRef]),
+    [dragRef]
+  )
 
   return (
     <button
+      ref={combinedRef}
       data-sidebar="rail"
       data-slot="sidebar-rail"
-      aria-label="Toggle Sidebar"
+      aria-label="Redimensionner ou replier la barre latérale"
       tabIndex={-1}
-      onClick={toggleSidebar}
-      title="Toggle Sidebar"
+      onMouseDown={handleMouseDown}
+      title="Redimensionner ou replier la barre latérale"
+      style={railStyles}
       className={cn(
-        "absolute inset-y-0 z-20 hidden w-4 transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:start-1/2 after:w-[2px] hover:after:bg-sidebar-border sm:flex ltr:-translate-x-1/2 rtl:-translate-x-1/2",
+        "absolute z-20 hidden w-4 transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:start-1/2 after:w-[2px] hover:after:bg-sidebar-border sm:flex ltr:-translate-x-1/2 rtl:-translate-x-1/2",
+        !isInsetVariant && "inset-y-0",
         "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
         "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
-        "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full hover:group-data-[collapsible=offcanvas]:bg-sidebar",
+        "hover:group-data-[collapsible=offcanvas]:bg-sidebar group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full",
         "[[data-side=left][data-collapsible=offcanvas]_&]:-right-2",
         "[[data-side=right][data-collapsible=offcanvas]_&]:-left-2",
         className
@@ -307,7 +399,9 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
     <main
       data-slot="sidebar-inset"
       className={cn(
-        "relative flex w-full flex-1 flex-col bg-background md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2",
+        "relative flex w-full flex-1 flex-col bg-background md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm",
+        "md:peer-data-[variant=inset]:transition-[margin] md:peer-data-[variant=inset]:duration-200 md:peer-data-[variant=inset]:ease-linear",
+        "md:peer-data-[variant=inset]:peer-data-[dragging=true]:duration-0!",
         className
       )}
       {...props}

@@ -481,6 +481,8 @@ export function ClassroomWorkspace({ classroomId }: { classroomId: string }) {
           <ParticipantsEditor
             participants={config.participants}
             seatCount={seatCount}
+            settings={config.settings}
+            onOpenSettings={() => setTab("settings")}
             onChange={(participants) => updateConfig({ ...config, participants })}
           />
         </TabsContent>

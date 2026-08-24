@@ -20,6 +20,12 @@ import { Switch } from "@plan2classe-app/ui/components/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@plan2classe-app/ui/components/tooltip";
 import { cn } from "@plan2classe-app/ui/lib/utils";
 import {
+  AlignCenterHorizontal,
+  AlignCenterVertical,
+  AlignEndHorizontal,
+  AlignHorizontalSpaceAround,
+  AlignStartHorizontal,
+  AlignVerticalSpaceAround,
   Armchair,
   Circle,
   Grid2X2,
@@ -41,8 +47,9 @@ import { toast } from "sonner";
 
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { OptionSelect, type SelectOption } from "@/components/common/option-select";
+import { TagInput } from "@/components/common/tag-input";
 
-import { RoomCanvas, type RoomSelection } from "./room-canvas";
+import { RoomCanvas, type RoomMove, type RoomSelection } from "./room-canvas";
 
 const relationLabels = {
   adjacent: "Voisins directs",
@@ -52,19 +59,33 @@ const relationLabels = {
   hand_conflict: "Collision de main",
 } as const;
 
+/**
+ * Only the shapes the inspector can actually edit. `polygon` and `free` need a
+ * point editor that does not exist, so offering them would create furniture
+ * nobody can change afterwards; existing data still renders.
+ */
 const shapeOptions: ReadonlyArray<SelectOption<Furniture["shape"]>> = [
   { value: "rectangle", label: "Rectangle" },
   { value: "ellipse", label: "Ellipse" },
-  { value: "polygon", label: "Polygone" },
-  { value: "composite", label: "Composite / U" },
   { value: "line", label: "Ligne" },
-  { value: "free", label: "Libre" },
+  { value: "composite", label: "Table en U" },
 ];
 
 const sideOptions: ReadonlyArray<SelectOption<"none" | "left" | "right">> = [
   { value: "none", label: "Non défini" },
   { value: "left", label: "Gauche" },
   { value: "right", label: "Droite" },
+];
+
+const SEAT_TAG_SUGGESTIONS = [
+  "zone:avant",
+  "zone:fond",
+  "zone:fenetre",
+  "zone:mur",
+  "accessible",
+  "front",
+  "middle",
+  "back",
 ];
 
 function makeSeat(label: string, x: number, y: number, furnitureId: string | null): Seat {
@@ -205,8 +226,29 @@ function InspectorSection({
   );
 }
 
+function AlignButton({
+  label,
+  icon: Icon,
+  onClick,
+}: {
+  label: string;
+  icon: typeof AlignStartHorizontal;
+  onClick: () => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={<Button size="icon-sm" variant="outline" onClick={onClick} aria-label={label} />}
+      >
+        <Icon />
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: Room) => void }) {
-  const [selection, setSelection] = useState<RoomSelection>(null);
+  const [selection, setSelection] = useState<RoomSelection[]>([]);
   const [relationA, setRelationA] = useState("");
   const [relationB, setRelationB] = useState("");
   const [relationKinds, setRelationKinds] = useState<Array<keyof typeof relationLabels>>([
@@ -214,12 +256,14 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
   ]);
   const [clearOpen, setClearOpen] = useState(false);
 
+  const single = selection.length === 1 ? selection[0] : undefined;
   const selectedSeat =
-    selection?.type === "seat" ? room.seats.find((seat) => seat.id === selection.id) : undefined;
+    single?.type === "seat" ? room.seats.find((seat) => seat.id === single.id) : undefined;
   const selectedFurniture =
-    selection?.type === "furniture"
-      ? room.furniture.find((item) => item.id === selection.id)
+    single?.type === "furniture"
+      ? room.furniture.find((item) => item.id === single.id)
       : undefined;
+
   const seatOptions = useMemo<ReadonlyArray<SelectOption>>(
     () =>
       room.seats
@@ -233,6 +277,18 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
   );
   const enabledSeatCount = room.seats.filter((seat) => seat.enabled).length;
 
+  const metadataText = (key: string) =>
+    typeof room.metadata?.[key] === "string" ? (room.metadata[key] as string) : "";
+  const roomNumber = metadataText("roomNumber");
+  const schoolYear = metadataText("schoolYear");
+  const defaultSchoolYear = useMemo(() => {
+    const now = new Date();
+    const start = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
+    return `${start}–${start + 1}`;
+  }, []);
+  const setMetadata = (key: string, value: string) =>
+    onChange({ ...room, metadata: { ...room.metadata, [key]: value } });
+
   const addPreset = (kind: Parameters<typeof preset>[1]) => {
     const next = preset(room, kind);
     onChange({
@@ -243,33 +299,53 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
     });
     setSelection(
       next.furniture
-        ? { type: "furniture", id: next.furniture.id }
-        : { type: "seat", id: next.seats[0]!.id },
+        ? [{ type: "furniture", id: next.furniture.id }]
+        : [{ type: "seat", id: next.seats[0]!.id }],
     );
   };
 
-  const move = (target: Exclude<RoomSelection, null>, x: number, y: number) => {
-    if (target.type === "board") {
-      onChange({ ...room, board: { ...room.board, x, y } });
-      return;
+  /** Applies a batch of absolute positions; furniture carries its seats along. */
+  const applyMoves = (moves: RoomMove[]) => {
+    let board = room.board;
+    const furnitureById = new Map(room.furniture.map((item) => [item.id, item]));
+    const nextFurniture = new Map<string, { x: number; y: number }>();
+    const nextSeats = new Map<string, { x: number; y: number }>();
+    const movedSeatIds = new Set(
+      moves.filter((move) => move.type === "seat").map((move) => move.id),
+    );
+
+    for (const move of moves) {
+      if (move.type === "board") {
+        board = { ...board, x: move.x, y: move.y };
+        continue;
+      }
+      if (move.type === "seat") {
+        nextSeats.set(move.id, { x: move.x, y: move.y });
+        continue;
+      }
+      const item = furnitureById.get(move.id);
+      if (!item) continue;
+      nextFurniture.set(move.id, { x: move.x, y: move.y });
+      const dx = move.x - item.x;
+      const dy = move.y - item.y;
+      for (const seat of room.seats) {
+        // A seat dragged in its own right keeps its explicit position.
+        if (seat.furniture_id !== move.id || movedSeatIds.has(seat.id)) continue;
+        nextSeats.set(seat.id, { x: seat.x + dx, y: seat.y + dy });
+      }
     }
-    if (target.type === "seat") {
-      onChange({
-        ...room,
-        seats: room.seats.map((seat) => (seat.id === target.id ? { ...seat, x, y } : seat)),
-      });
-      return;
-    }
-    const furniture = room.furniture.find((item) => item.id === target.id);
-    if (!furniture) return;
-    const dx = x - furniture.x;
-    const dy = y - furniture.y;
+
     onChange({
       ...room,
-      furniture: room.furniture.map((item) => (item.id === target.id ? { ...item, x, y } : item)),
-      seats: room.seats.map((seat) =>
-        seat.furniture_id === target.id ? { ...seat, x: seat.x + dx, y: seat.y + dy } : seat,
-      ),
+      board,
+      furniture: room.furniture.map((item) => {
+        const next = nextFurniture.get(item.id);
+        return next ? { ...item, ...next } : item;
+      }),
+      seats: room.seats.map((seat) => {
+        const next = nextSeats.get(seat.id);
+        return next ? { ...seat, ...next } : seat;
+      }),
     });
   };
 
@@ -277,9 +353,7 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
     if (!selectedSeat) return;
     onChange({
       ...room,
-      seats: room.seats.map((seat) =>
-        seat.id === selectedSeat.id ? { ...seat, ...patch } : seat,
-      ),
+      seats: room.seats.map((seat) => (seat.id === selectedSeat.id ? { ...seat, ...patch } : seat)),
     });
   };
   const updateFurniture = (patch: Partial<Furniture>) => {
@@ -292,30 +366,93 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
     });
   };
 
-  const removeTarget = (target: Exclude<RoomSelection, null>) => {
-    if (target.type === "board") return;
-    if (target.type === "seat") {
-      onChange({
-        ...room,
-        seats: room.seats.filter((seat) => seat.id !== target.id),
-        relations: room.relations.filter(
-          (relation) => relation.a !== target.id && relation.b !== target.id,
-        ),
+  const removeTargets = (targets: RoomSelection[]) => {
+    const furnitureIds = new Set(
+      targets.filter((item) => item.type === "furniture").map((item) => item.id),
+    );
+    const seatIds = new Set(targets.filter((item) => item.type === "seat").map((item) => item.id));
+    for (const seat of room.seats) {
+      if (seat.furniture_id && furnitureIds.has(seat.furniture_id)) seatIds.add(seat.id);
+    }
+    if (furnitureIds.size === 0 && seatIds.size === 0) return;
+    onChange({
+      ...room,
+      furniture: room.furniture.filter((item) => !furnitureIds.has(item.id)),
+      seats: room.seats.filter((seat) => !seatIds.has(seat.id)),
+      relations: room.relations.filter(
+        (relation) => !seatIds.has(relation.a) && !seatIds.has(relation.b),
+      ),
+    });
+    setSelection([]);
+  };
+
+  /** Aligns or spreads every selected element along one axis. */
+  const alignSelection = (
+    mode: "left" | "center-x" | "right" | "top" | "center-y" | "bottom" | "spread-x" | "spread-y",
+  ) => {
+    const boxes = selection.flatMap((item) => {
+      if (item.type === "seat") {
+        const seat = room.seats.find((candidate) => candidate.id === item.id);
+        return seat ? [{ target: item, x: seat.x, y: seat.y, width: 0, height: 0 }] : [];
+      }
+      if (item.type === "furniture") {
+        const furniture = room.furniture.find((candidate) => candidate.id === item.id);
+        return furniture
+          ? [
+              {
+                target: item,
+                x: furniture.x,
+                y: furniture.y,
+                width: furniture.width,
+                height: furniture.height,
+              },
+            ]
+          : [];
+      }
+      return [];
+    });
+    if (boxes.length < 2) return;
+
+    const lefts = boxes.map((box) => box.x);
+    const rights = boxes.map((box) => box.x + box.width);
+    const tops = boxes.map((box) => box.y);
+    const bottoms = boxes.map((box) => box.y + box.height);
+    const moves: RoomMove[] = [];
+
+    if (mode === "spread-x" || mode === "spread-y") {
+      const horizontal = mode === "spread-x";
+      const sorted = [...boxes].sort((a, b) => (horizontal ? a.x - b.x : a.y - b.y));
+      const first = sorted[0]!;
+      const last = sorted[sorted.length - 1]!;
+      const span = horizontal ? last.x - first.x : last.y - first.y;
+      const step = span / (sorted.length - 1);
+      sorted.forEach((box, index) => {
+        const value = Math.round((horizontal ? first.x : first.y) + step * index);
+        moves.push({
+          ...box.target,
+          x: horizontal ? value : box.x,
+          y: horizontal ? box.y : value,
+        });
       });
     } else {
-      const removedSeatIds = new Set(
-        room.seats.filter((seat) => seat.furniture_id === target.id).map((seat) => seat.id),
-      );
-      onChange({
-        ...room,
-        furniture: room.furniture.filter((item) => item.id !== target.id),
-        seats: room.seats.filter((seat) => !removedSeatIds.has(seat.id)),
-        relations: room.relations.filter(
-          (relation) => !removedSeatIds.has(relation.a) && !removedSeatIds.has(relation.b),
-        ),
-      });
+      const minLeft = Math.min(...lefts);
+      const maxRight = Math.max(...rights);
+      const minTop = Math.min(...tops);
+      const maxBottom = Math.max(...bottoms);
+      const centerX = (minLeft + maxRight) / 2;
+      const centerY = (minTop + maxBottom) / 2;
+      for (const box of boxes) {
+        let { x, y } = box;
+        if (mode === "left") x = minLeft;
+        if (mode === "right") x = maxRight - box.width;
+        if (mode === "center-x") x = Math.round(centerX - box.width / 2);
+        if (mode === "top") y = minTop;
+        if (mode === "bottom") y = maxBottom - box.height;
+        if (mode === "center-y") y = Math.round(centerY - box.height / 2);
+        moves.push({ ...box.target, x: Math.round(x), y: Math.round(y) });
+      }
     }
-    setSelection(null);
+    applyMoves(moves);
   };
 
   const addSeatToFurniture = () => {
@@ -327,7 +464,7 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
       selectedFurniture.id,
     );
     onChange({ ...room, seats: [...room.seats, seat] });
-    setSelection({ type: "seat", id: seat.id });
+    setSelection([{ type: "seat", id: seat.id }]);
   };
 
   const addRelation = () => {
@@ -369,6 +506,16 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
     toast.success("Places renumérotées");
   };
 
+  const inspectorTitle = selectedSeat
+    ? `Place ${selectedSeat.label}`
+    : selectedFurniture
+      ? selectedFurniture.label
+      : single?.type === "board"
+        ? "Tableau"
+        : selection.length > 1
+          ? `${selection.length} éléments`
+          : "Inspecteur";
+
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-w-0 space-y-3">
@@ -404,7 +551,20 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
                 <DropdownMenuItem onClick={renumberSeats} disabled={room.seats.length === 0}>
                   <Ruler /> Renuméroter les places
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setSelection({ type: "board", id: "board" })}>
+                <DropdownMenuItem
+                  onClick={() =>
+                    setSelection([
+                      ...room.furniture.map(
+                        (item) => ({ type: "furniture", id: item.id }) as RoomSelection,
+                      ),
+                      ...room.seats.map((seat) => ({ type: "seat", id: seat.id }) as RoomSelection),
+                    ])
+                  }
+                  disabled={room.seats.length === 0 && room.furniture.length === 0}
+                >
+                  <Grid2X2 /> Tout sélectionner
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSelection([{ type: "board", id: "board" }])}>
                   <MonitorPlay /> Sélectionner le tableau
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
@@ -425,40 +585,32 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
           editable
           selection={selection}
           onSelectionChange={setSelection}
-          onMove={move}
-          onDelete={removeTarget}
+          onMove={applyMoves}
+          onDelete={removeTargets}
           className="min-h-[420px] lg:min-h-[520px]"
         />
 
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
             <MousePointerClick className="size-3.5" aria-hidden="true" />
-            Glissez les tables et les sièges
+            Glissez pour déplacer, tracez un rectangle pour sélectionner plusieurs éléments
           </span>
           <span className="inline-flex items-center gap-1.5">
             <Keyboard className="size-3.5" aria-hidden="true" />
-            Flèches pour ajuster, Maj pour aller vite, Suppr pour retirer
+            Maj+clic pour ajouter à la sélection, flèches pour ajuster, Suppr pour retirer
           </span>
-          <span>Alt enfoncé : placement libre hors grille</span>
+          <span>Alt enfoncé : placement libre, sans grille ni alignement</span>
         </div>
       </div>
 
       <Card className="h-fit gap-0 py-0 shadow-none xl:sticky xl:top-4">
         <CardHeader className="flex-row items-center justify-between gap-2 border-b px-4 py-3">
-          <CardTitle className="text-sm">
-            {selectedSeat
-              ? `Place ${selectedSeat.label}`
-              : selectedFurniture
-                ? selectedFurniture.label
-                : selection?.type === "board"
-                  ? "Tableau"
-                  : "Inspecteur"}
-          </CardTitle>
-          {selection ? (
+          <CardTitle className="text-sm">{inspectorTitle}</CardTitle>
+          {selection.length > 0 ? (
             <Button
               size="icon-sm"
               variant="ghost"
-              onClick={() => setSelection(null)}
+              onClick={() => setSelection([])}
               aria-label="Désélectionner"
             >
               <X />
@@ -467,7 +619,7 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
         </CardHeader>
 
         <CardContent className="scrollbar-thin grid max-h-[calc(100svh-12rem)] gap-6 overflow-y-auto px-4 py-4">
-          {!selection && (
+          {selection.length === 0 && (
             <InspectorSection title="Dimensions de la salle" icon={Ruler}>
               <div className="grid grid-cols-2 gap-2">
                 <div className="grid gap-1.5">
@@ -510,12 +662,100 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
                 </div>
               </div>
               <p className="text-xs leading-5 text-muted-foreground">
-                Sélectionnez une table, un siège ou le tableau dans le plan pour le modifier.
+                Sélectionnez un élément du plan pour le modifier, ou plusieurs pour les aligner.
               </p>
             </InspectorSection>
           )}
 
-          {selection?.type === "board" && (
+          {selection.length === 0 && (
+            <InspectorSection title="Identité de la salle" icon={MonitorPlay}>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="grid gap-1.5">
+                  <Label htmlFor="room-number" className="text-xs">
+                    Numéro de salle
+                  </Label>
+                  <Input
+                    id="room-number"
+                    value={roomNumber}
+                    placeholder="204"
+                    onChange={(event) => setMetadata("roomNumber", event.target.value)}
+                  />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="school-year" className="text-xs">
+                    Année scolaire
+                  </Label>
+                  <Input
+                    id="school-year"
+                    value={schoolYear}
+                    placeholder={defaultSchoolYear}
+                    onChange={(event) => setMetadata("schoolYear", event.target.value)}
+                  />
+                </div>
+              </div>
+              <p className="text-xs leading-5 text-muted-foreground">
+                Repris tels quels en en-tête du plan exporté en PDF.
+              </p>
+            </InspectorSection>
+          )}
+
+          {selection.length > 1 && (
+            <InspectorSection title={`${selection.length} éléments sélectionnés`} icon={Grid2X2}>
+              <div className="grid gap-2">
+                <p className="text-xs text-muted-foreground">Aligner</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <AlignButton
+                    label="Aligner à gauche"
+                    icon={AlignStartHorizontal}
+                    onClick={() => alignSelection("left")}
+                  />
+                  <AlignButton
+                    label="Centrer horizontalement"
+                    icon={AlignCenterVertical}
+                    onClick={() => alignSelection("center-x")}
+                  />
+                  <AlignButton
+                    label="Aligner à droite"
+                    icon={AlignEndHorizontal}
+                    onClick={() => alignSelection("right")}
+                  />
+                  <AlignButton
+                    label="Aligner en haut"
+                    icon={AlignStartHorizontal}
+                    onClick={() => alignSelection("top")}
+                  />
+                  <AlignButton
+                    label="Centrer verticalement"
+                    icon={AlignCenterHorizontal}
+                    onClick={() => alignSelection("center-y")}
+                  />
+                  <AlignButton
+                    label="Aligner en bas"
+                    icon={AlignEndHorizontal}
+                    onClick={() => alignSelection("bottom")}
+                  />
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">Répartir</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <AlignButton
+                    label="Espacer horizontalement"
+                    icon={AlignHorizontalSpaceAround}
+                    onClick={() => alignSelection("spread-x")}
+                  />
+                  <AlignButton
+                    label="Espacer verticalement"
+                    icon={AlignVerticalSpaceAround}
+                    onClick={() => alignSelection("spread-y")}
+                  />
+                </div>
+              </div>
+              <Button variant="destructive" size="sm" onClick={() => removeTargets(selection)}>
+                <Trash2 /> Supprimer la sélection
+              </Button>
+            </InspectorSection>
+          )}
+
+          {single?.type === "board" && (
             <InspectorSection title="Tableau" icon={MonitorPlay}>
               <div className="grid gap-1.5">
                 <Label className="text-xs">Libellé</Label>
@@ -533,10 +773,7 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
                     type="number"
                     value={room.board.x}
                     onChange={(event) =>
-                      onChange({
-                        ...room,
-                        board: { ...room.board, x: Number(event.target.value) },
-                      })
+                      onChange({ ...room, board: { ...room.board, x: Number(event.target.value) } })
                     }
                   />
                 </div>
@@ -546,10 +783,7 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
                     type="number"
                     value={room.board.y}
                     onChange={(event) =>
-                      onChange({
-                        ...room,
-                        board: { ...room.board, y: Number(event.target.value) },
-                      })
+                      onChange({ ...room, board: { ...room.board, y: Number(event.target.value) } })
                     }
                   />
                 </div>
@@ -562,10 +796,7 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
                   onChange={(event) =>
                     onChange({
                       ...room,
-                      board: {
-                        ...room.board,
-                        width: Math.max(20, Number(event.target.value)),
-                      },
+                      board: { ...room.board, width: Math.max(20, Number(event.target.value)) },
                     })
                   }
                 />
@@ -625,17 +856,12 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
               </div>
               <div className="grid gap-1.5">
                 <Label className="text-xs">Tags</Label>
-                <Input
-                  value={selectedFurniture.tags.join(", ")}
-                  placeholder="fenetre, fond"
-                  onChange={(event) =>
-                    updateFurniture({
-                      tags: event.target.value
-                        .split(",")
-                        .map((value) => value.trim())
-                        .filter(Boolean),
-                    })
-                  }
+                <TagInput
+                  value={selectedFurniture.tags}
+                  onChange={(tags) => updateFurniture({ tags })}
+                  suggestions={SEAT_TAG_SUGGESTIONS}
+                  placeholder="Ajouter un tag…"
+                  aria-label="Tags du mobilier"
                 />
               </div>
               <div className="grid gap-2">
@@ -645,7 +871,7 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
                 <Button
                   variant="destructive"
                   size="sm"
-                  onClick={() => removeTarget({ type: "furniture", id: selectedFurniture.id })}
+                  onClick={() => removeTargets([{ type: "furniture", id: selectedFurniture.id }])}
                 >
                   <Trash2 /> Supprimer table et sièges
                 </Button>
@@ -691,22 +917,14 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
               </div>
               <div className="grid gap-1.5">
                 <Label className="text-xs">Tags</Label>
-                <Input
-                  value={selectedSeat.tags.join(", ")}
-                  placeholder="zone:avant, accessible"
-                  onChange={(event) =>
-                    updateSeat({
-                      tags: event.target.value
-                        .split(",")
-                        .map((value) => value.trim())
-                        .filter(Boolean),
-                    })
-                  }
+                <TagInput
+                  value={selectedSeat.tags}
+                  onChange={(tags) => updateSeat({ tags })}
+                  suggestions={SEAT_TAG_SUGGESTIONS}
+                  placeholder="Ajouter un tag…"
+                  aria-label="Tags de la place"
+                  hint="Les tags zone:… deviennent les zones proposées aux élèves dans le formulaire."
                 />
-                <p className="text-xs leading-5 text-muted-foreground">
-                  Les tags <span className="font-mono">zone:…</span> deviennent des zones
-                  proposées aux élèves dans le formulaire.
-                </p>
               </div>
               <label className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-xs">
                 <span>
@@ -723,7 +941,7 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
               <Button
                 variant="destructive"
                 size="sm"
-                onClick={() => removeTarget({ type: "seat", id: selectedSeat.id })}
+                onClick={() => removeTargets([{ type: "seat", id: selectedSeat.id }])}
               >
                 <Trash2 /> Supprimer la place
               </Button>
@@ -858,7 +1076,7 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
         confirmLabel="Vider la salle"
         onConfirm={() => {
           onChange({ ...room, furniture: [], seats: [], relations: [] });
-          setSelection(null);
+          setSelection([]);
           setClearOpen(false);
           toast.success("Salle vidée");
         }}
