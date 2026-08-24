@@ -4,7 +4,13 @@ import { newId } from "@plan2classe-app/api/domain/defaults";
 import type { Furniture, Room, Seat, SeatRelation } from "@plan2classe-app/api/schemas/classroom";
 import { Badge } from "@plan2classe-app/ui/components/badge";
 import { Button } from "@plan2classe-app/ui/components/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@plan2classe-app/ui/components/card";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@plan2classe-app/ui/components/card";
 import { Checkbox } from "@plan2classe-app/ui/components/checkbox";
 import {
   DropdownMenu,
@@ -49,6 +55,7 @@ import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { OptionSelect, type SelectOption } from "@/components/common/option-select";
 import { TagInput } from "@/components/common/tag-input";
 
+import { PolygonEditor } from "./polygon-editor";
 import { RoomCanvas, type RoomMove, type RoomSelection } from "./room-canvas";
 
 const relationLabels = {
@@ -59,16 +66,18 @@ const relationLabels = {
   hand_conflict: "Collision de main",
 } as const;
 
-/**
- * Only the shapes the inspector can actually edit. `polygon` and `free` need a
- * point editor that does not exist, so offering them would create furniture
- * nobody can change afterwards; existing data still renders.
- */
 const shapeOptions: ReadonlyArray<SelectOption<Furniture["shape"]>> = [
   { value: "rectangle", label: "Rectangle" },
   { value: "ellipse", label: "Ellipse" },
   { value: "line", label: "Ligne" },
   { value: "composite", label: "Table en U" },
+  { value: "polygon", label: "Forme libre", description: "Dessinez le contour point par point" },
+];
+
+const DEFAULT_POLYGON: Array<[number, number]> = [
+  [50, 0],
+  [100, 100],
+  [0, 100],
 ];
 
 const sideOptions: ReadonlyArray<SelectOption<"none" | "left" | "right">> = [
@@ -604,17 +613,19 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
       </div>
 
       <Card className="h-fit gap-0 py-0 shadow-none xl:sticky xl:top-4">
-        <CardHeader className="flex-row items-center justify-between gap-2 border-b px-4 py-3">
+        <CardHeader className="border-b px-4 py-3">
           <CardTitle className="text-sm">{inspectorTitle}</CardTitle>
           {selection.length > 0 ? (
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              onClick={() => setSelection([])}
-              aria-label="Désélectionner"
-            >
-              <X />
-            </Button>
+            <CardAction>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                onClick={() => setSelection([])}
+                aria-label="Désélectionner"
+              >
+                <X />
+              </Button>
+            </CardAction>
           ) : null}
         </CardHeader>
 
@@ -817,11 +828,29 @@ export function RoomBuilder({ room, onChange }: { room: Room; onChange: (room: R
                 <Label className="text-xs">Forme</Label>
                 <OptionSelect
                   value={selectedFurniture.shape}
-                  onValueChange={(value) => updateFurniture({ shape: value })}
+                  onValueChange={(value) =>
+                    updateFurniture({
+                      shape: value,
+                      // A free shape with no outline would render as nothing.
+                      points:
+                        value === "polygon" && selectedFurniture.points.length < 3
+                          ? DEFAULT_POLYGON.map((point) => [...point] as [number, number])
+                          : selectedFurniture.points,
+                    })
+                  }
                   options={shapeOptions}
                   aria-label="Forme du mobilier"
                 />
               </div>
+              {selectedFurniture.shape === "polygon" ? (
+                <div className="grid gap-1.5">
+                  <Label className="text-xs">Contour</Label>
+                  <PolygonEditor
+                    points={selectedFurniture.points as Array<[number, number]>}
+                    onChange={(points) => updateFurniture({ points })}
+                  />
+                </div>
+              ) : null}
               <div className="grid grid-cols-2 gap-2">
                 <div className="grid gap-1.5">
                   <Label className="text-xs">Largeur</Label>

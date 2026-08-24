@@ -4,7 +4,7 @@ import type { FormConfig } from "@plan2classe-app/api/schemas/classroom";
 import { Alert, AlertDescription, AlertTitle } from "@plan2classe-app/ui/components/alert";
 import { Badge } from "@plan2classe-app/ui/components/badge";
 import { Button } from "@plan2classe-app/ui/components/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@plan2classe-app/ui/components/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@plan2classe-app/ui/components/card";
 import { Input } from "@plan2classe-app/ui/components/input";
 import { Label } from "@plan2classe-app/ui/components/label";
 import { Switch } from "@plan2classe-app/ui/components/switch";
@@ -279,11 +279,13 @@ export function FormSettings({
 
       <div className="space-y-4 xl:sticky xl:top-4 xl:self-start">
         <Card className="shadow-none">
-          <CardHeader className="flex-row items-center justify-between gap-2">
+          <CardHeader>
             <CardTitle className="text-sm">Partage</CardTitle>
-            <Badge variant={published ? "default" : "secondary"}>
-              {published ? "Ouvert" : "Fermé"}
-            </Badge>
+            <CardAction>
+              <Badge variant={published ? "default" : "secondary"}>
+                {published ? "Ouvert" : "Fermé"}
+              </Badge>
+            </CardAction>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center gap-2 rounded-lg border bg-muted/40 p-2">

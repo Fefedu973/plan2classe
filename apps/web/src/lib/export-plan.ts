@@ -1,4 +1,4 @@
-import type { Classroom, Room, Seat, SolutionRecord } from "@plan2classe-app/api/schemas/classroom";
+import type { Classroom, Room, SolutionRecord } from "@plan2classe-app/api/schemas/classroom";
 
 type PlanClassroom = Pick<Classroom, "name" | "config">;
 type PlanParticipant = PlanClassroom["config"]["participants"][number];
@@ -6,6 +6,21 @@ type PlanParticipant = PlanClassroom["config"]["participants"][number];
 type ExportPlanInput = {
   classroom: PlanClassroom;
   solution: SolutionRecord;
+};
+
+export type PdfExportOptions = {
+  /** Heading of the document, e.g. "Plan de classe". */
+  title: string;
+  /** Sub-heading, normally the class name. */
+  subtitle: string;
+  roomName: string;
+  schoolYear: string;
+  orientation: "landscape" | "portrait";
+  /** `filled` inverts occupied seats, `outline` keeps everything on white. */
+  style: "outline" | "filled";
+  showSeatLabels: boolean;
+  showNeeds: boolean;
+  includeStudentList: boolean;
 };
 
 type PdfDocument = {
@@ -34,14 +49,26 @@ type PdfDocument = {
     ry: number,
     style?: string,
   ) => void;
+  ellipse: (x: number, y: number, rx: number, ry: number, style?: string) => void;
+  lines: (
+    points: number[][],
+    x: number,
+    y: number,
+    scale?: number[],
+    style?: string,
+    closed?: boolean,
+  ) => void;
   splitTextToSize: (text: string, maxWidth: number) => string[];
   output: (type: "arraybuffer") => ArrayBuffer;
   getTextWidth: (text: string) => number;
+  addPage: () => PdfDocument;
+  setPage: (page: number) => PdfDocument;
+  getNumberOfPages: () => number;
   save: (filename: string) => void;
 };
 
 type PdfConstructor = new (options: {
-  orientation: "landscape";
+  orientation: "landscape" | "portrait";
   unit: "mm";
   format: "a4";
   compress: boolean;
@@ -51,10 +78,13 @@ type PdfConstructor = new (options: {
 const ink = {
   title: 20,
   body: 60,
-  muted: 125,
-  rule: 205,
-  cellBorder: 70,
-  fill: 244,
+  muted: 130,
+  rule: 208,
+  furnitureLine: 190,
+  furnitureFill: 243,
+  seatLine: 90,
+  seatFillDark: 34,
+  onDark: 255,
 } as const;
 
 /** UTF-8 byte order mark: Excel needs it to read accented CSV correctly. */
@@ -66,8 +96,37 @@ const DIACRITICS = new RegExp(
 );
 
 const MARGIN = 14;
-/** Seats closer than this share a row, as a fraction of the room height. */
-const ROW_BAND = 0.06;
+const HEADER_HEIGHT = 22;
+const FOOTER_HEIGHT = 10;
+/** Font sizes tried, largest first, when fitting a name into its seat. */
+const NAME_SIZES = [8.5, 7.5, 6.5, 5.8, 5.2, 4.6] as const;
+
+export function defaultSchoolYear(date = new Date()) {
+  // A school year starts in the late summer, so anything before August still
+  // belongs to the year that began the previous calendar year.
+  const start = date.getMonth() >= 7 ? date.getFullYear() : date.getFullYear() - 1;
+  return `${start}–${start + 1}`;
+}
+
+export function defaultExportOptions(
+  classroom: PlanClassroom,
+  generatedAt: Date,
+): PdfExportOptions {
+  const metadata = classroom.config.room.metadata ?? {};
+  const roomName = typeof metadata.roomNumber === "string" ? metadata.roomNumber : "";
+  const schoolYear = typeof metadata.schoolYear === "string" ? metadata.schoolYear : "";
+  return {
+    title: "Plan de classe",
+    subtitle: classroom.name,
+    roomName,
+    schoolYear: schoolYear || defaultSchoolYear(generatedAt),
+    orientation: "landscape",
+    style: "filled",
+    showSeatLabels: true,
+    showNeeds: false,
+    includeStudentList: false,
+  };
+}
 
 export function exportSolutionCsv({ classroom, solution }: ExportPlanInput) {
   const participantById = new Map(
@@ -120,68 +179,131 @@ export function exportSolutionCsv({ classroom, solution }: ExportPlanInput) {
   );
 }
 
-export async function exportSolutionPdf(input: ExportPlanInput) {
-  const doc = await buildSolutionPdf(input);
+export async function exportSolutionPdf(input: ExportPlanInput, options?: PdfExportOptions) {
+  const doc = await buildSolutionPdf(input, options);
   doc.save(
-    `${fileStem(input.classroom.name)}-${dateStamp(input.solution.result.generated_at)}.pdf`,
+    `${fileStem(options?.subtitle || input.classroom.name)}-${dateStamp(
+      input.solution.result.generated_at,
+    )}.pdf`,
   );
 }
 
-type SeatBlock = { seats: Seat[] };
-type SeatRow = { blocks: SeatBlock[] };
+/**
+ * Median distance from a seat to its closest neighbour, in room units. It sets
+ * how much space a seat box may take without colliding with the next one.
+ */
+function seatPitch(room: Room) {
+  const seats = room.seats.filter((seat) => seat.enabled);
+  if (seats.length < 2) return 120;
+  const distances = seats.map((seat) => {
+    let best = Number.POSITIVE_INFINITY;
+    for (const other of seats) {
+      if (other.id === seat.id) continue;
+      const distance = Math.hypot(other.x - seat.x, other.y - seat.y);
+      if (distance < best) best = distance;
+    }
+    return best;
+  });
+  distances.sort((a, b) => a - b);
+  return distances[Math.floor(distances.length / 2)] ?? 120;
+}
 
 /**
- * Turns the free-form plan into the row-and-table grid a printed seating chart
- * is expected to be: seats are banded into rows by their vertical position,
- * ordered left to right, and consecutive seats sharing a table stay welded.
+ * Greedy wrap that can also break after a hyphen: composed first names are one
+ * whitespace-free token, so a space-only split would leave them overflowing.
  */
-function buildGrid(room: Room): SeatRow[] {
-  const seats = room.seats.filter((seat) => seat.enabled).sort((a, b) => a.y - b.y || a.x - b.x);
-  if (seats.length === 0) return [];
-
-  const band = Math.max(1, room.height * ROW_BAND);
-  const rows: Seat[][] = [];
-  for (const seat of seats) {
-    const current = rows[rows.length - 1];
-    const reference = current?.[0];
-    if (current && reference && Math.abs(seat.y - reference.y) <= band) current.push(seat);
-    else rows.push([seat]);
-  }
-
-  return rows.map((row) => {
-    const ordered = [...row].sort((a, b) => a.x - b.x);
-    const blocks: SeatBlock[] = [];
-    for (const seat of ordered) {
-      const last = blocks[blocks.length - 1];
-      const lastSeat = last?.seats[last.seats.length - 1];
-      const sameTable =
-        lastSeat && seat.furniture_id !== null && lastSeat.furniture_id === seat.furniture_id;
-      if (last && sameTable) last.seats.push(seat);
-      else blocks.push({ seats: [seat] });
+function wrapName(doc: PdfDocument, name: string, maxWidth: number) {
+  const tokens = name.trim().split(/(?<=[-\s])/);
+  const lines: string[] = [];
+  let current = "";
+  for (const token of tokens) {
+    const candidate = current + token;
+    if (!current || doc.getTextWidth(candidate.trim()) <= maxWidth) {
+      current = candidate;
+    } else {
+      lines.push(current.trim());
+      current = token;
     }
-    return { blocks };
+  }
+  if (current.trim()) lines.push(current.trim());
+  return lines;
+}
+
+/** Cuts a line that still cannot fit, keeping an ellipsis as the last glyph. */
+function ellipsize(doc: PdfDocument, line: string, maxWidth: number) {
+  if (doc.getTextWidth(line) <= maxWidth) return line;
+  let text = line;
+  while (text.length > 1 && doc.getTextWidth(`${text}…`) > maxWidth) {
+    text = text.slice(0, -1);
+  }
+  return `${text}…`;
+}
+
+/** "Marie-Charlotte Delaunay-Fontaine" becomes "Marie-Charlotte D.-F.". */
+function abbreviate(name: string) {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length < 2) return name;
+  const [first, ...rest] = parts;
+  const initials = rest
+    .map((part) =>
+      part
+        .split("-")
+        .map((piece) => (piece[0] ? `${piece[0].toLocaleUpperCase("fr")}.` : ""))
+        .join("-"),
+    )
+    .join(" ");
+  return `${first} ${initials}`.trim();
+}
+
+/**
+ * Largest font size at which the name fits the box on at most `maxLines`. A
+ * name too long even wrapped is abbreviated rather than silently cut, so the
+ * chart never shows a half word.
+ */
+function fitName(doc: PdfDocument, name: string, maxWidth: number, maxLines: number) {
+  const candidates = [name, abbreviate(name)].filter(
+    (value, index, all) => all.indexOf(value) === index,
+  );
+  for (const candidate of candidates) {
+    for (const size of NAME_SIZES) {
+      doc.setFontSize(size);
+      const lines = wrapName(doc, candidate, maxWidth);
+      if (lines.length <= maxLines && lines.every((line) => doc.getTextWidth(line) <= maxWidth)) {
+        return { size, lines };
+      }
+    }
+  }
+  const size = NAME_SIZES[NAME_SIZES.length - 1]!;
+  doc.setFontSize(size);
+  const wrapped = wrapName(doc, candidates[candidates.length - 1]!, maxWidth);
+  const lines = wrapped.slice(0, maxLines).map((line, index) => {
+    const isLastShown = index === Math.min(maxLines, wrapped.length) - 1;
+    const truncated = wrapped.length > maxLines && isLastShown;
+    return ellipsize(doc, truncated ? `${line}…` : line, maxWidth);
   });
+  return { size, lines };
 }
 
-function schoolYearFor(room: Room, date: Date) {
-  const declared = room.metadata?.schoolYear;
-  if (typeof declared === "string" && declared.trim()) return declared.trim();
-  // A school year starts in the late summer, so anything before August still
-  // belongs to the year that began the previous calendar year.
-  const year = date.getMonth() >= 7 ? date.getFullYear() : date.getFullYear() - 1;
-  return `${year}–${year + 1}`;
-}
-
-function roomNumberFor(room: Room) {
-  const declared = room.metadata?.roomNumber;
-  return typeof declared === "string" && declared.trim() ? declared.trim() : null;
+function needMarks(participant: PlanParticipant) {
+  const marks: string[] = [];
+  if (participant.handedness === "left") marks.push("G");
+  if (participant.vision_need > 0) marks.push("V");
+  if (participant.hearing_need > 0) marks.push("A");
+  if (participant.tags.accessible === "true") marks.push("PMR");
+  return marks.join(" ");
 }
 
 /** Builds the document without saving it, so the layout can be exercised in tests. */
-export async function buildSolutionPdf({ classroom, solution }: ExportPlanInput) {
+export async function buildSolutionPdf(
+  { classroom, solution }: ExportPlanInput,
+  optionsInput?: PdfExportOptions,
+) {
+  const generatedAt = new Date(solution.result.generated_at);
+  const options = optionsInput ?? defaultExportOptions(classroom, generatedAt);
+
   const module = (await import("jspdf")) as unknown as { jsPDF: PdfConstructor };
   const doc = new module.jsPDF({
-    orientation: "landscape",
+    orientation: options.orientation,
     unit: "mm",
     format: "a4",
     compress: true,
@@ -190,7 +312,6 @@ export async function buildSolutionPdf({ classroom, solution }: ExportPlanInput)
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const room = classroom.config.room;
-  const generatedAt = new Date(solution.result.generated_at);
 
   const participantById = new Map(
     classroom.config.participants.map((participant) => [participant.id, participant]),
@@ -203,161 +324,292 @@ export async function buildSolutionPdf({ classroom, solution }: ExportPlanInput)
   );
 
   doc.setProperties({
-    title: `Plan de classe — ${classroom.name}`,
-    subject: "Plan de classe",
+    title: `${options.title} — ${options.subtitle}`,
+    subject: options.title,
     author: "Plan2Classe",
     creator: "Plan2Classe",
   });
 
-  // ---- Header -------------------------------------------------------------
+  drawHeader(doc, { pageWidth, options, generatedAt });
+
+  // ---- Plan area, sized so the room keeps its aspect ratio ----------------
+  const planTop = HEADER_HEIGHT + 6;
+  const planBottom = pageHeight - FOOTER_HEIGHT;
+  const planLeft = MARGIN;
+  const planWidth = pageWidth - MARGIN * 2;
+  const planHeight = planBottom - planTop;
+
+  const scale = Math.min(planWidth / room.width, planHeight / room.height);
+  const originX = planLeft + (planWidth - room.width * scale) / 2;
+  const originY = planTop + (planHeight - room.height * scale) / 2;
+  const projectX = (value: number) => originX + value * scale;
+  const projectY = (value: number) => originY + value * scale;
+
+  const pitch = seatPitch(room);
+  const seatWidth = Math.min(34, Math.max(13, pitch * scale * 0.94));
+  // Tall enough for two wrapped lines plus the label strip; rows sit much
+  // further apart than seats within a table, so height is the cheap axis.
+  const seatHeight = Math.min(18, Math.max(8, seatWidth * 0.66));
+
+  // Furniture, then the board, then seats: later layers stay readable.
+  for (const item of room.furniture) {
+    const x = projectX(item.x);
+    const y = projectY(item.y);
+    const width = Math.max(1.5, item.width * scale);
+    const height = Math.max(1.5, item.height * scale);
+    doc.setDrawColor(ink.furnitureLine);
+    doc.setFillColor(ink.furnitureFill);
+    doc.setLineWidth(0.3);
+
+    if (item.shape === "ellipse") {
+      doc.ellipse(x + width / 2, y + height / 2, width / 2, height / 2, "FD");
+    } else if (item.shape === "line") {
+      doc.setLineWidth(Math.max(0.5, height));
+      doc.setDrawColor(ink.seatLine);
+      doc.line(x, y + height / 2, x + width, y + height / 2);
+    } else if (item.shape === "polygon" && item.points.length >= 3) {
+      // `points` are percentages of the bounding box, as the on-screen
+      // `clip-path` expects; jsPDF wants deltas from the first vertex.
+      const absolute = item.points.map(
+        ([px, py]) => [x + (px / 100) * width, y + (py / 100) * height] as const,
+      );
+      const first = absolute[0]!;
+      const deltas = absolute
+        .slice(1)
+        .map((point, index) => [
+          point[0] - (absolute[index] ?? first)[0],
+          point[1] - (absolute[index] ?? first)[1],
+        ]);
+      doc.lines(deltas, first[0], first[1], [1, 1], "FD", true);
+    } else if (item.shape === "composite") {
+      // A U keeps only its two arms and the back, so the inside stays open.
+      const arm = Math.max(1.5, width * 0.14);
+      const back = Math.max(1.5, height * 0.22);
+      doc.rect(x, y, arm, height, "FD");
+      doc.rect(x + width - arm, y, arm, height, "FD");
+      doc.rect(x, y + height - back, width, back, "FD");
+    } else {
+      doc.roundedRect(x, y, width, height, 1, 1, "FD");
+    }
+
+    if (item.shape !== "line" && width > 16 && height > 6) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(5.4);
+      doc.setTextColor(ink.muted);
+      const [label = ""] = doc.splitTextToSize(item.label, width - 3);
+      doc.text(label, x + width / 2, y + height / 2 + 1, { align: "center" });
+    }
+  }
+
+  const boardX = projectX(room.board.x);
+  const boardY = projectY(room.board.y);
+  const boardWidth = Math.max(12, room.board.width * scale);
+  doc.setDrawColor(ink.title);
+  doc.setLineWidth(0.9);
+  doc.line(boardX, boardY, boardX + boardWidth, boardY);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(16);
-  doc.setTextColor(ink.title);
-  const [title = classroom.name] = doc.splitTextToSize(classroom.name, pageWidth - MARGIN * 2);
-  doc.text(title, MARGIN, MARGIN + 3);
-
-  const roomNumber = roomNumberFor(room);
-  const meta = [
-    `Année scolaire ${schoolYearFor(room, generatedAt)}`,
-    roomNumber ? `Salle ${roomNumber}` : null,
-    formatLongDate(generatedAt),
-  ].filter(Boolean) as string[];
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.setTextColor(ink.muted);
-  doc.text(meta.join("   ·   "), MARGIN, MARGIN + 9);
-
-  doc.setDrawColor(ink.rule);
-  doc.setLineWidth(0.3);
-  doc.line(MARGIN, MARGIN + 13, pageWidth - MARGIN, MARGIN + 13);
-
-  // ---- Plan area ----------------------------------------------------------
-  const sideLabelWidth = 8;
-  const planTop = MARGIN + 20;
-  const planBottom = pageHeight - MARGIN - 6;
-  const planLeft = MARGIN + sideLabelWidth;
-  const planRight = pageWidth - MARGIN - sideLabelWidth;
-  const planWidth = planRight - planLeft;
-
-  const rows = buildGrid(room);
-  const maxCells = Math.max(1, ...rows.map((row) => row.blocks.reduce((n, b) => n + b.seats.length, 0)));
-  const maxBlocks = Math.max(1, ...rows.map((row) => row.blocks.length));
-
-  // Board first: it anchors the top of the plan and the rows flow beneath it.
-  const boardWidth = Math.min(planWidth * 0.46, 120);
-  const boardHeight = 9;
-  const boardX = planLeft + (planWidth - boardWidth) / 2;
-  doc.setDrawColor(ink.cellBorder);
-  doc.setFillColor(ink.fill);
-  doc.setLineWidth(0.4);
-  doc.roundedRect(boardX, planTop, boardWidth, boardHeight, 1.5, 1.5, "FD");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
+  doc.setFontSize(6.5);
   doc.setTextColor(ink.body);
-  doc.text(room.board.label.toUpperCase(), planLeft + planWidth / 2, planTop + 5.9, {
+  doc.text(room.board.label.toUpperCase(), boardX + boardWidth / 2, boardY - 1.8, {
     align: "center",
   });
 
-  const gridTop = planTop + boardHeight + 12;
-  const gridHeight = planBottom - gridTop;
-  const rowGap = 4;
-  const blockGap = 6;
-  const rowHeight = Math.min(
-    18,
-    Math.max(9, (gridHeight - rowGap * Math.max(0, rows.length - 1)) / Math.max(1, rows.length)),
-  );
-  const cellWidth = Math.min(
-    46,
-    (planWidth - blockGap * (maxBlocks - 1)) / maxCells,
-  );
+  for (const seat of room.seats) {
+    if (!seat.enabled) continue;
+    const participant = participantBySeat.get(seat.id);
+    const centerX = projectX(seat.x);
+    const centerY = projectY(seat.y);
+    const x = centerX - seatWidth / 2;
+    const y = centerY - seatHeight / 2;
+    const filled = Boolean(participant) && options.style === "filled";
 
-  if (rows.length === 0) {
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(ink.muted);
-    doc.text("Aucune place active dans cette salle.", planLeft + planWidth / 2, gridTop + 20, {
-      align: "center",
-    });
-  }
+    doc.setLineWidth(0.3);
+    doc.setDrawColor(filled ? ink.seatFillDark : ink.seatLine);
+    doc.setFillColor(filled ? ink.seatFillDark : 255);
+    doc.roundedRect(x, y, seatWidth, seatHeight, 1.1, 1.1, "FD");
 
-  rows.forEach((row, rowIndex) => {
-    const cells = row.blocks.reduce((total, block) => total + block.seats.length, 0);
-    const rowWidth = cells * cellWidth + (row.blocks.length - 1) * blockGap;
-    let x = planLeft + (planWidth - rowWidth) / 2;
-    const y = gridTop + rowIndex * (rowHeight + rowGap);
+    const labelRoom = options.showSeatLabels ? 2.4 : 0;
+    const textAreaHeight = seatHeight - labelRoom;
+    const maxLines = textAreaHeight >= 5 ? 2 : 1;
 
-    for (const block of row.blocks) {
-      const blockWidth = block.seats.length * cellWidth;
-      doc.setDrawColor(ink.cellBorder);
-      doc.setLineWidth(0.4);
-      doc.rect(x, y, blockWidth, rowHeight, "S");
-
-      block.seats.forEach((seat, seatIndex) => {
-        const cellX = x + seatIndex * cellWidth;
-        if (seatIndex > 0) {
-          doc.setLineWidth(0.25);
-          doc.line(cellX, y, cellX, y + rowHeight);
-        }
-        const participant = participantBySeat.get(seat.id);
-        const centerX = cellX + cellWidth / 2;
-
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(rowHeight > 13 ? 9 : 7.5);
-        doc.setTextColor(participant ? ink.title : ink.muted);
-        const label = participant ? shortenName(participant.name, 24) : "—";
-        doc.text(label, centerX, y + rowHeight / 2 + 0.4, { align: "center" });
-
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(5.6);
-        doc.setTextColor(ink.muted);
-        doc.text(seat.label, cellX + 1.6, y + rowHeight - 1.8);
+    if (participant) {
+      doc.setFont("helvetica", "bold");
+      const { size, lines } = fitName(doc, participant.name, seatWidth - 2.4, maxLines);
+      doc.setFontSize(size);
+      doc.setTextColor(filled ? ink.onDark : ink.title);
+      const lineHeight = size * 0.36;
+      const blockTop = y + textAreaHeight / 2 - ((lines.length - 1) * lineHeight) / 2 + size * 0.13;
+      lines.forEach((line, index) => {
+        doc.text(line, centerX, blockTop + index * lineHeight, { align: "center" });
       });
-
-      x += blockWidth + blockGap;
+    } else {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(5.4);
+      doc.setTextColor(ink.muted);
+      doc.text("libre", centerX, y + textAreaHeight / 2 + 0.8, { align: "center" });
     }
-  });
 
-  // ---- Side orientation labels -------------------------------------------
-  const sideLabels = orientationLabels(room);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
-  doc.setTextColor(ink.muted);
-  const sideY = gridTop + Math.max(0, gridHeight) / 2;
-  if (sideLabels.left) {
-    doc.text(sideLabels.left, MARGIN + 3, sideY, { align: "center", angle: 90 });
-  }
-  if (sideLabels.right) {
-    doc.text(sideLabels.right, pageWidth - MARGIN - 3, sideY, { align: "center", angle: 270 });
+    const marks = participant && options.showNeeds ? needMarks(participant) : "";
+    if (options.showSeatLabels || marks) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(4.6);
+      doc.setTextColor(filled ? 200 : ink.muted);
+      if (options.showSeatLabels) {
+        doc.text(seat.label, x + 1.4, y + seatHeight - 1.3);
+      }
+      if (marks) {
+        doc.text(marks, x + seatWidth - 1.4, y + seatHeight - 1.3, { align: "right" });
+      }
+    }
   }
 
-  // ---- Footer -------------------------------------------------------------
-  doc.setFontSize(6.5);
-  doc.setTextColor(ink.rule);
-  doc.text("Plan2Classe", pageWidth - MARGIN, pageHeight - MARGIN + 3, { align: "right" });
+  if (options.includeStudentList) {
+    drawStudentList(doc, { classroom, solution, pageWidth, pageHeight, options });
+  }
+  drawFooters(doc, { pageWidth, pageHeight, options });
 
   return doc;
 }
 
-function orientationLabels(room: Room) {
-  const wall = room.metadata?.wall;
-  const windowSide = room.metadata?.window;
-  const left = wall === "left" ? "côté mur" : windowSide === "left" ? "côté fenêtre" : null;
-  const right = windowSide === "right" ? "côté fenêtre" : wall === "right" ? "côté mur" : null;
-  return { left, right };
+function drawHeader(
+  doc: PdfDocument,
+  {
+    pageWidth,
+    options,
+    generatedAt,
+  }: { pageWidth: number; options: PdfExportOptions; generatedAt: Date },
+) {
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(15);
+  doc.setTextColor(ink.title);
+  const [title = options.title] = doc.splitTextToSize(options.title, pageWidth - MARGIN * 2);
+  doc.text(title, MARGIN, MARGIN);
+
+  const meta = [options.subtitle, options.roomName ? `Salle ${options.roomName}` : null]
+    .filter(Boolean)
+    .join("   ·   ");
+  if (meta) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(ink.body);
+    doc.text(meta, MARGIN, MARGIN + 5.5);
+  }
+
+  const right = [options.schoolYear, formatLongDate(generatedAt)].filter(Boolean).join("   ·   ");
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(ink.muted);
+  doc.text(right, pageWidth - MARGIN, MARGIN, { align: "right" });
+
+  doc.setDrawColor(ink.rule);
+  doc.setLineWidth(0.3);
+  doc.line(MARGIN, HEADER_HEIGHT, pageWidth - MARGIN, HEADER_HEIGHT);
 }
 
-function shortenName(name: string, maxLength: number) {
-  const normalized = name.trim();
-  if (normalized.length <= maxLength) return normalized;
-  const parts = normalized.split(/\s+/);
-  if (parts.length > 1 && parts[0]) {
-    const compact = `${parts[0]} ${parts
-      .slice(1)
-      .map((part) => part[0])
-      .join(".")}.`;
-    if (compact.length <= maxLength) return compact;
+function drawStudentList(
+  doc: PdfDocument,
+  {
+    classroom,
+    solution,
+    pageWidth,
+    pageHeight,
+    options,
+  }: {
+    classroom: PlanClassroom;
+    solution: SolutionRecord;
+    pageWidth: number;
+    pageHeight: number;
+    options: PdfExportOptions;
+  },
+) {
+  const participantById = new Map(
+    classroom.config.participants.map((participant) => [participant.id, participant]),
+  );
+  const seatById = new Map(classroom.config.room.seats.map((seat) => [seat.id, seat]));
+
+  const rows = Object.entries(solution.result.assignment)
+    .map(([participantId, seatId]) => ({
+      seat: seatById.get(seatId)?.label ?? seatId,
+      name: participantById.get(participantId)?.name ?? participantId,
+    }))
+    .sort((a, b) => a.seat.localeCompare(b.seat, "fr", { numeric: true }));
+  if (rows.length === 0) return;
+
+  doc.addPage();
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.setTextColor(ink.title);
+  doc.text("Liste des élèves", MARGIN, MARGIN);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(ink.muted);
+  doc.text(
+    [options.subtitle, `${rows.length} élèves`].filter(Boolean).join("   ·   "),
+    MARGIN,
+    MARGIN + 5.5,
+  );
+  doc.setDrawColor(ink.rule);
+  doc.setLineWidth(0.3);
+  doc.line(MARGIN, HEADER_HEIGHT, pageWidth - MARGIN, HEADER_HEIGHT);
+
+  const columns = pageWidth > pageHeight ? 3 : 2;
+  const gutter = 8;
+  const columnWidth = (pageWidth - MARGIN * 2 - gutter * (columns - 1)) / columns;
+  const rowHeight = 6.4;
+  const top = HEADER_HEIGHT + 8;
+  const perColumn = Math.max(1, Math.floor((pageHeight - FOOTER_HEIGHT - top) / rowHeight));
+  const perPage = perColumn * columns;
+
+  rows.forEach((row, index) => {
+    const position = index % perPage;
+    if (index > 0 && position === 0) {
+      doc.addPage();
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.setTextColor(ink.title);
+      doc.text("Liste des élèves (suite)", MARGIN, MARGIN);
+      doc.setDrawColor(ink.rule);
+      doc.line(MARGIN, HEADER_HEIGHT, pageWidth - MARGIN, HEADER_HEIGHT);
+    }
+    const column = Math.floor(position / perColumn);
+    const line = position % perColumn;
+    const x = MARGIN + column * (columnWidth + gutter);
+    const y = top + line * rowHeight;
+
+    if (line % 2 === 1) {
+      doc.setFillColor(249);
+      doc.rect(x, y - 4.4, columnWidth, rowHeight, "F");
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.setTextColor(ink.body);
+    doc.text(row.seat, x + 2, y);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(ink.title);
+    const [name = row.name] = doc.splitTextToSize(row.name, columnWidth - 18);
+    doc.text(name, x + 15, y);
+  });
+}
+
+function drawFooters(
+  doc: PdfDocument,
+  {
+    pageWidth,
+    pageHeight,
+    options,
+  }: { pageWidth: number; pageHeight: number; options: PdfExportOptions },
+) {
+  const total = doc.getNumberOfPages();
+  for (let page = 1; page <= total; page += 1) {
+    doc.setPage(page);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.5);
+    doc.setTextColor(ink.rule);
+    doc.text(options.subtitle, MARGIN, pageHeight - 5);
+    if (total > 1) {
+      doc.text(`${page} / ${total}`, pageWidth - MARGIN, pageHeight - 5, { align: "right" });
+    }
   }
-  return `${normalized.slice(0, maxLength - 1)}…`;
 }
 
 function escapeCsvCell(value: string) {

@@ -11,6 +11,7 @@ import { Badge } from "@plan2classe-app/ui/components/badge";
 import { Button } from "@plan2classe-app/ui/components/button";
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -50,9 +51,15 @@ import {
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { exportSolutionCsv, exportSolutionPdf } from "@/lib/export-plan";
+import {
+  defaultExportOptions,
+  exportSolutionCsv,
+  exportSolutionPdf,
+  type PdfExportOptions,
+} from "@/lib/export-plan";
 import { orpc } from "@/utils/orpc";
 
+import { ExportPdfDialog } from "./export-pdf-dialog";
 import { RoomCanvas } from "./room-canvas";
 
 type SolutionViewBaseProps = {
@@ -74,6 +81,7 @@ export function SolutionView(props: SolutionViewProps) {
   const queryClient = useQueryClient();
   const [selectedSolutionId, setSelectedSolutionId] = useState<string | null>(null);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   const latestQuery = useQuery(
     orpc.solution.latest.queryOptions({ input: { classroomId } }),
@@ -111,11 +119,12 @@ export function SolutionView(props: SolutionViewProps) {
     activeSolution && currentLatest && activeSolution.id !== currentLatest.id,
   );
 
-  async function handlePdfExport() {
+  async function handlePdfExport(options: PdfExportOptions) {
     if (!activeSolution) return;
     setIsExportingPdf(true);
     try {
-      await exportSolutionPdf({ classroom, solution: activeSolution });
+      await exportSolutionPdf({ classroom, solution: activeSolution }, options);
+      setExportOpen(false);
       toast.success("PDF généré");
     } catch (error) {
       toast.error(
@@ -188,17 +197,8 @@ export function SolutionView(props: SolutionViewProps) {
             <FileSpreadsheet aria-hidden="true" />
             CSV
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => void handlePdfExport()}
-            disabled={isExportingPdf}
-          >
-            {isExportingPdf ? (
-              <LoaderCircle className="animate-spin" aria-hidden="true" />
-            ) : (
-              <FileDown aria-hidden="true" />
-            )}
+          <Button type="button" variant="outline" onClick={() => setExportOpen(true)}>
+            <FileDown aria-hidden="true" />
             PDF
           </Button>
           <Button
@@ -242,24 +242,24 @@ export function SolutionView(props: SolutionViewProps) {
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_280px]">
         <div className="min-w-0 space-y-5">
           <Card className="shadow-none">
-            <CardHeader className="flex-row items-start justify-between gap-4 border-b px-4 py-4 sm:px-5">
-              <div>
-                <CardTitle className="text-sm">Plan de la salle</CardTitle>
-                <CardDescription className="mt-1">
-                  Survolez une place pour retrouver son libellé complet.
-                </CardDescription>
-              </div>
-              <Badge
-                variant={result.hard_constraints_verified ? "secondary" : "destructive"}
-                className="gap-1.5"
-              >
-                {result.hard_constraints_verified ? (
-                  <ShieldCheck aria-hidden="true" />
-                ) : (
-                  <AlertTriangle aria-hidden="true" />
-                )}
-                {result.hard_constraints_verified ? "Contraintes vérifiées" : "À vérifier"}
-              </Badge>
+            <CardHeader className="border-b px-4 py-4 sm:px-5">
+              <CardTitle className="text-sm">Plan de la salle</CardTitle>
+              <CardDescription>
+                Survolez une place pour retrouver son libellé complet.
+              </CardDescription>
+              <CardAction>
+                <Badge
+                  variant={result.hard_constraints_verified ? "secondary" : "destructive"}
+                  className="gap-1.5"
+                >
+                  {result.hard_constraints_verified ? (
+                    <ShieldCheck aria-hidden="true" />
+                  ) : (
+                    <AlertTriangle aria-hidden="true" />
+                  )}
+                  {result.hard_constraints_verified ? "Contraintes vérifiées" : "À vérifier"}
+                </Badge>
+              </CardAction>
             </CardHeader>
             <CardContent className="p-3 sm:p-5">
               <RoomCanvas
@@ -287,6 +287,14 @@ export function SolutionView(props: SolutionViewProps) {
           onRefresh={() => void historyQuery.refetch()}
         />
       </div>
+
+      <ExportPdfDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        defaults={defaultExportOptions(classroom, new Date(result.generated_at))}
+        pending={isExportingPdf}
+        onExport={(options) => void handlePdfExport(options)}
+      />
     </div>
   );
 }
@@ -691,24 +699,24 @@ function HistoryPanel({
   return (
     <aside className="self-start xl:sticky xl:top-16">
       <Card className="shadow-none">
-        <CardHeader className="flex-row items-start justify-between gap-3 border-b">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <History className="size-4" aria-hidden="true" />
-              Historique
-            </CardTitle>
-            <CardDescription className="mt-1">Comparez les calculs conservés.</CardDescription>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={onRefresh}
-            aria-label="Actualiser l’historique"
-            disabled={isLoading}
-          >
-            <RefreshCw className={cn(isLoading && "animate-spin")} aria-hidden="true" />
-          </Button>
+        <CardHeader className="border-b">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <History className="size-4" aria-hidden="true" />
+            Historique
+          </CardTitle>
+          <CardDescription>Comparez les calculs conservés.</CardDescription>
+          <CardAction>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={onRefresh}
+              aria-label="Actualiser l’historique"
+              disabled={isLoading}
+            >
+              <RefreshCw className={cn(isLoading && "animate-spin")} aria-hidden="true" />
+            </Button>
+          </CardAction>
         </CardHeader>
         <CardContent className="space-y-2">
           {isLoading && uniqueItems.length === 0 ? (

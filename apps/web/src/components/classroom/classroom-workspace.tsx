@@ -3,7 +3,7 @@
 import type { ClassroomConfig } from "@plan2classe-app/api/schemas/classroom";
 import { Badge } from "@plan2classe-app/ui/components/badge";
 import { Button } from "@plan2classe-app/ui/components/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@plan2classe-app/ui/components/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@plan2classe-app/ui/components/card";
 import { Input } from "@plan2classe-app/ui/components/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@plan2classe-app/ui/components/input-group";
 import { Label } from "@plan2classe-app/ui/components/label";
@@ -146,16 +146,16 @@ function SetupOverview({
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
       <Card className="min-w-0 gap-0 overflow-hidden py-0 shadow-none">
-        <CardHeader className="flex-row items-center justify-between gap-3 border-b px-4 py-4 sm:px-5">
-          <div className="min-w-0">
-            <CardTitle className="text-sm">Aperçu de la salle</CardTitle>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Le dernier plan reste affiché pendant que vous préparez le suivant.
-            </p>
-          </div>
-          <Button size="sm" variant="outline" onClick={() => onNavigate("room")}>
-            <SlidersHorizontal /> Modifier
-          </Button>
+        <CardHeader className="border-b px-4 py-4 sm:px-5">
+          <CardTitle className="text-sm">Aperçu de la salle</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Le dernier plan reste affiché pendant que vous préparez le suivant.
+          </p>
+          <CardAction>
+            <Button size="sm" variant="outline" onClick={() => onNavigate("room")}>
+              <SlidersHorizontal /> Modifier
+            </Button>
+          </CardAction>
         </CardHeader>
         <CardContent className="p-4 sm:p-5">
           <RoomCanvas room={config.room} participants={config.participants} className="min-h-96" />

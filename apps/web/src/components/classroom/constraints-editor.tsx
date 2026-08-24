@@ -4,7 +4,7 @@ import { newId } from "@plan2classe-app/api/domain/defaults";
 import type { Participant, Room, Rule, RuleKind } from "@plan2classe-app/api/schemas/classroom";
 import { Badge } from "@plan2classe-app/ui/components/badge";
 import { Button } from "@plan2classe-app/ui/components/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@plan2classe-app/ui/components/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@plan2classe-app/ui/components/card";
 import { Checkbox } from "@plan2classe-app/ui/components/checkbox";
 import {
   Dialog,
@@ -788,14 +788,12 @@ export function ConstraintsEditor({
         <div className="grid gap-3">
           {rules.map((rule) => (
             <Card key={rule.id} className={cn("shadow-none", !rule.enabled && "opacity-60")}>
-              <CardHeader className="flex-row items-start gap-3 px-4 sm:px-5">
-                <div className="min-w-0 flex-1">
-                  <CardTitle className="text-sm">{rule.name}</CardTitle>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    {kinds.find((item) => item.value === rule.kind)?.description}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
+              <CardHeader className="px-4 sm:px-5">
+                <CardTitle className="text-sm">{rule.name}</CardTitle>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {kinds.find((item) => item.value === rule.kind)?.description}
+                </p>
+                <CardAction className="flex items-center gap-2">
                   <Badge variant={rule.hard ? "default" : "secondary"} className="gap-1.5">
                     {rule.hard ? <Shield /> : <Sparkles />}
                     {rule.hard ? "Dure" : "Souple"}
@@ -813,7 +811,7 @@ export function ConstraintsEditor({
                   >
                     <Trash2 />
                   </Button>
-                </div>
+                </CardAction>
               </CardHeader>
               <CardContent className="grid gap-4 px-4 sm:px-5">
                 <ParamsEditor

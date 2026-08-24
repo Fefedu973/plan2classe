@@ -2,7 +2,7 @@
 
 import { Badge } from "@plan2classe-app/ui/components/badge";
 import { Button } from "@plan2classe-app/ui/components/button";
-import { Card, CardContent, CardHeader } from "@plan2classe-app/ui/components/card";
+import { Card, CardAction, CardContent, CardHeader } from "@plan2classe-app/ui/components/card";
 import {
   Dialog,
   DialogContent,
@@ -350,16 +350,18 @@ export default function DashboardOverview({
                   className="group rounded-2xl focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
                 >
                   <Card className="h-full gap-4 py-5 shadow-none transition-all group-hover:-translate-y-0.5 group-hover:border-foreground/30 group-hover:shadow-md">
-                    <CardHeader className="flex-row items-start justify-between gap-3 px-5">
+                    <CardHeader className="px-5">
                       <div className="min-w-0">
                         <h2 className="truncate font-semibold tracking-tight">{item.name}</h2>
                         <p className="mt-1 line-clamp-2 min-h-10 text-sm text-muted-foreground">
                           {item.description || "Aucune description"}
                         </p>
                       </div>
-                      <Badge variant={item.published ? "default" : "secondary"} className="shrink-0">
-                        {item.published ? "Ouvert" : "Brouillon"}
-                      </Badge>
+                      <CardAction>
+                        <Badge variant={item.published ? "default" : "secondary"}>
+                          {item.published ? "Ouvert" : "Brouillon"}
+                        </Badge>
+                      </CardAction>
                     </CardHeader>
                     <CardContent className="mt-auto px-5">
                       <div className="grid grid-cols-3 gap-2 rounded-xl bg-muted/60 p-3 text-center">

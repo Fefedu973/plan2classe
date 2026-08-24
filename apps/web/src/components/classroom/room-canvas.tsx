@@ -429,7 +429,11 @@ export function RoomCanvas({
             key={seat.id}
             type="button"
             className={cn(
-              "absolute z-20 flex min-h-8 min-w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-lg border bg-background px-1.5 py-1 text-[10px] font-semibold shadow-sm hover:z-30 hover:scale-105 hover:border-foreground/50 focus-visible:z-40 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",
+              // Centring lives in the inline `transform` below. Tailwind's
+              // `-translate-x-1/2` compiles to the standalone `translate`
+              // property, which would *compose* with it and shift the seat by a
+              // whole box instead of half of one.
+              "absolute z-20 flex min-h-8 min-w-8 items-center justify-center rounded-lg border bg-background px-1.5 py-1 text-[10px] font-semibold shadow-sm hover:z-30 hover:scale-105 hover:border-foreground/50 focus-visible:z-40 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",
               "transition-[box-shadow,border-color,background-color,scale]",
               participant && "min-w-16 border-foreground bg-foreground text-background",
               !seat.enabled && "border-dashed opacity-45",

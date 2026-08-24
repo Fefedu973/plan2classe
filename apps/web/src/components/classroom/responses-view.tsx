@@ -2,7 +2,13 @@
 
 import { Badge } from "@plan2classe-app/ui/components/badge";
 import { Button } from "@plan2classe-app/ui/components/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@plan2classe-app/ui/components/card";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@plan2classe-app/ui/components/card";
 import { Progress } from "@plan2classe-app/ui/components/progress";
 import { Skeleton } from "@plan2classe-app/ui/components/skeleton";
 import {
@@ -213,22 +219,22 @@ export function ResponsesView({ classroomId }: { classroomId: string }) {
       </div>
 
       <Card className="gap-0 overflow-hidden py-0 shadow-none">
-        <CardHeader className="flex-row items-start justify-between gap-3 border-b px-4 py-4">
-          <div className="min-w-0">
-            <CardTitle className="text-sm">Détail des réponses</CardTitle>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Une modification par un élève conserve la date de première réponse utilisée par la
-              politique d’arrivée.
-            </p>
-          </div>
-          <Button
-            size="sm"
-            variant="destructive"
-            disabled={items.length === 0 || reset.isPending}
-            onClick={() => setResetOpen(true)}
-          >
-            <RotateCcw /> Réinitialiser
-          </Button>
+        <CardHeader className="border-b px-4 py-4">
+          <CardTitle className="text-sm">Détail des réponses</CardTitle>
+          <p className="text-xs leading-5 text-muted-foreground">
+            Une modification par un élève conserve la date de première réponse utilisée par la
+            politique d’arrivée.
+          </p>
+          <CardAction>
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={items.length === 0 || reset.isPending}
+              onClick={() => setResetOpen(true)}
+            >
+              <RotateCcw /> Réinitialiser
+            </Button>
+          </CardAction>
         </CardHeader>
         {items.length === 0 ? (
           <div className="px-6 py-14 text-center">
@@ -316,9 +322,9 @@ export function ResponsesView({ classroomId }: { classroomId: string }) {
 
       {(data?.unanswered ?? []).length > 0 ? (
         <Card className="shadow-none">
-          <CardHeader className="flex-row items-center gap-2">
-            <WandSparkles className="size-4" aria-hidden="true" />
-            <CardTitle className="text-sm">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <WandSparkles className="size-4" aria-hidden="true" />
               Sans réponse, mais toujours placés ({data?.unanswered.length})
             </CardTitle>
           </CardHeader>
