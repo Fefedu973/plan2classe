@@ -16,6 +16,12 @@ export type PdfExportOptions = {
   roomName: string;
   schoolYear: string;
   orientation: "landscape" | "portrait";
+  /**
+   * `room` draws the plan as the editor shows it, board at the top. `teacher`
+   * turns it a half-turn so it reads the way a teacher facing the class sees
+   * it: board at the bottom, and left/right matching their own.
+   */
+  viewpoint: "room" | "teacher";
   /** `filled` inverts occupied seats, `outline` keeps everything on white. */
   style: "outline" | "filled";
   showSeatLabels: boolean;
@@ -121,6 +127,7 @@ export function defaultExportOptions(
     roomName,
     schoolYear: schoolYear || defaultSchoolYear(generatedAt),
     orientation: "landscape",
+    viewpoint: "room",
     style: "filled",
     showSeatLabels: true,
     showNeeds: false,
@@ -342,8 +349,20 @@ export async function buildSolutionPdf(
   const scale = Math.min(planWidth / room.width, planHeight / room.height);
   const originX = planLeft + (planWidth - room.width * scale) / 2;
   const originY = planTop + (planHeight - room.height * scale) / 2;
-  const projectX = (value: number) => originX + value * scale;
-  const projectY = (value: number) => originY + value * scale;
+  // A half-turn, not a vertical mirror: turning the sheet around also swaps
+  // left and right, which is exactly what the teacher sees.
+  const flipped = options.viewpoint === "teacher";
+  const projectX = (value: number) =>
+    originX + (flipped ? room.width - value : value) * scale;
+  const projectY = (value: number) =>
+    originY + (flipped ? room.height - value : value) * scale;
+  /** Top-left corner of a room-space box, after the optional half-turn. */
+  const projectBox = (x: number, y: number, width: number, height: number) => ({
+    x: flipped ? projectX(x + width) : projectX(x),
+    y: flipped ? projectY(y + height) : projectY(y),
+    width: Math.max(1.5, width * scale),
+    height: Math.max(1.5, height * scale),
+  });
 
   const pitch = seatPitch(room);
   const seatWidth = Math.min(34, Math.max(13, pitch * scale * 0.94));
@@ -353,10 +372,7 @@ export async function buildSolutionPdf(
 
   // Furniture, then the board, then seats: later layers stay readable.
   for (const item of room.furniture) {
-    const x = projectX(item.x);
-    const y = projectY(item.y);
-    const width = Math.max(1.5, item.width * scale);
-    const height = Math.max(1.5, item.height * scale);
+    const { x, y, width, height } = projectBox(item.x, item.y, item.width, item.height);
     doc.setDrawColor(ink.furnitureLine);
     doc.setFillColor(ink.furnitureFill);
     doc.setLineWidth(0.3);
@@ -370,9 +386,11 @@ export async function buildSolutionPdf(
     } else if (item.shape === "polygon" && item.points.length >= 3) {
       // `points` are percentages of the bounding box, as the on-screen
       // `clip-path` expects; jsPDF wants deltas from the first vertex.
-      const absolute = item.points.map(
-        ([px, py]) => [x + (px / 100) * width, y + (py / 100) * height] as const,
-      );
+      const absolute = item.points.map(([px, py]) => {
+        const localX = flipped ? 100 - px : px;
+        const localY = flipped ? 100 - py : py;
+        return [x + (localX / 100) * width, y + (localY / 100) * height] as const;
+      });
       const first = absolute[0]!;
       const deltas = absolute
         .slice(1)
@@ -387,7 +405,7 @@ export async function buildSolutionPdf(
       const back = Math.max(1.5, height * 0.22);
       doc.rect(x, y, arm, height, "FD");
       doc.rect(x + width - arm, y, arm, height, "FD");
-      doc.rect(x, y + height - back, width, back, "FD");
+      doc.rect(x, flipped ? y : y + height - back, width, back, "FD");
     } else {
       doc.roundedRect(x, y, width, height, 1, 1, "FD");
     }
@@ -401,18 +419,24 @@ export async function buildSolutionPdf(
     }
   }
 
-  const boardX = projectX(room.board.x);
-  const boardY = projectY(room.board.y);
   const boardWidth = Math.max(12, room.board.width * scale);
+  const boardX = flipped
+    ? projectX(room.board.x + room.board.width)
+    : projectX(room.board.x);
+  const boardY = projectY(room.board.y);
   doc.setDrawColor(ink.title);
   doc.setLineWidth(0.9);
   doc.line(boardX, boardY, boardX + boardWidth, boardY);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(6.5);
   doc.setTextColor(ink.body);
-  doc.text(room.board.label.toUpperCase(), boardX + boardWidth / 2, boardY - 1.8, {
-    align: "center",
-  });
+  doc.text(
+    room.board.label.toUpperCase(),
+    boardX + boardWidth / 2,
+    // Keep the caption on the side of the line away from the seats.
+    flipped ? boardY + 4 : boardY - 1.8,
+    { align: "center" },
+  );
 
   for (const seat of room.seats) {
     if (!seat.enabled) continue;
@@ -495,7 +519,13 @@ function drawHeader(
     doc.text(meta, MARGIN, MARGIN + 5.5);
   }
 
-  const right = [options.schoolYear, formatLongDate(generatedAt)].filter(Boolean).join("   ·   ");
+  const right = [
+    options.viewpoint === "teacher" ? "Vue du professeur" : null,
+    options.schoolYear,
+    formatLongDate(generatedAt),
+  ]
+    .filter(Boolean)
+    .join("   ·   ");
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(ink.muted);

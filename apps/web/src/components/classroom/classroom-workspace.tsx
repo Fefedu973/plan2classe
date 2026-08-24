@@ -32,6 +32,7 @@ import {
   Settings2,
   SlidersHorizontal,
   Sparkles,
+  Tag,
   Trash2,
   TriangleAlert,
   Users,
@@ -53,11 +54,13 @@ import { RoomBuilder } from "./room-builder";
 import { RoomCanvas } from "./room-canvas";
 import { SolutionView } from "./solution-view";
 import { SolverSettingsEditor } from "./solver-settings";
+import { TagsManager } from "./tags-manager";
 
 type WorkspaceTab =
   | "overview"
   | "room"
   | "participants"
+  | "tags"
   | "constraints"
   | "form"
   | "responses"
@@ -72,6 +75,7 @@ const tabItems: Array<{
   { value: "overview", label: "Vue d’ensemble", icon: LayoutGrid },
   { value: "room", label: "Salle", icon: SlidersHorizontal },
   { value: "participants", label: "Élèves", icon: Users },
+  { value: "tags", label: "Tags", icon: Tag },
   { value: "constraints", label: "Contraintes", icon: ListChecks },
   { value: "form", label: "Formulaire", icon: FileText },
   { value: "responses", label: "Réponses", icon: MessageSquareText },
@@ -485,6 +489,9 @@ export function ClassroomWorkspace({ classroomId }: { classroomId: string }) {
             onOpenSettings={() => setTab("settings")}
             onChange={(participants) => updateConfig({ ...config, participants })}
           />
+        </TabsContent>
+        <TabsContent value="tags">
+          <TagsManager config={config} onChange={updateConfig} />
         </TabsContent>
         <TabsContent value="constraints">
           <ConstraintsEditor

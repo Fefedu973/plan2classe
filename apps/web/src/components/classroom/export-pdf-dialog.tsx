@@ -13,7 +13,14 @@ import { Input } from "@plan2classe-app/ui/components/input";
 import { Label } from "@plan2classe-app/ui/components/label";
 import { Switch } from "@plan2classe-app/ui/components/switch";
 import { cn } from "@plan2classe-app/ui/lib/utils";
-import { FileDown, LoaderCircle, RectangleHorizontal, RectangleVertical } from "lucide-react";
+import {
+  FileDown,
+  LoaderCircle,
+  PanelBottom,
+  PanelTop,
+  RectangleHorizontal,
+  RectangleVertical,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { PdfExportOptions } from "@/lib/export-plan";
@@ -168,6 +175,26 @@ export function ExportPdfDialog({
                 icon={RectangleVertical}
                 label="Portrait"
                 hint="Convient aux salles en longueur."
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-2">
+            <Label>Point de vue</Label>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <ChoiceCard
+                selected={options.viewpoint === "room"}
+                onSelect={() => set("viewpoint", "room")}
+                icon={PanelTop}
+                label="Vue de la salle"
+                hint="Tableau en haut, comme dans l’éditeur."
+              />
+              <ChoiceCard
+                selected={options.viewpoint === "teacher"}
+                onSelect={() => set("viewpoint", "teacher")}
+                icon={PanelBottom}
+                label="Vue du professeur"
+                hint="Tableau en bas : le plan est tourné d’un demi-tour, votre gauche est celle du plan."
               />
             </div>
           </div>
