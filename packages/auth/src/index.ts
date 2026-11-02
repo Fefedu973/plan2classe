@@ -100,3 +100,5 @@ export function createAuth(options: { database?: Database } = {}) {
 }
 
 export const auth = createAuth();
+
+export type AuthSession = typeof auth.$Infer.Session;

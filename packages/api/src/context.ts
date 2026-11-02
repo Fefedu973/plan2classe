@@ -1,4 +1,4 @@
-import { auth } from "@plan2classe-app/auth";
+import { auth, type AuthSession } from "@plan2classe-app/auth";
 import { db, type Database } from "@plan2classe-app/db";
 import type { Context as HonoContext } from "hono";
 
@@ -7,12 +7,11 @@ export type CreateContextOptions = {
   database?: Database;
 };
 
-export async function createContext({ context, database = db }: CreateContextOptions) {
+export async function createContext({ context, database = db }: CreateContextOptions): Promise<Context> {
   const session = await auth.api.getSession({
     headers: context.req.raw.headers,
   });
   return {
-    auth,
     database,
     request: {
       ip:
@@ -22,4 +21,8 @@ export async function createContext({ context, database = db }: CreateContextOpt
   };
 }
 
-export type Context = Awaited<ReturnType<typeof createContext>>;
+export interface Context {
+  database: Database;
+  request: { ip: string };
+  session: AuthSession | null;
+}

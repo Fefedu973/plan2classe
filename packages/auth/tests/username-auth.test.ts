@@ -4,6 +4,7 @@ import { createDb, eq, type Database } from "@plan2classe-app/db";
 import { user } from "@plan2classe-app/db/schema/auth";
 
 import { createAuth } from "../src/index";
+import { hashPassword } from "better-auth/crypto";
 
 const authSchemaSql = `
 PRAGMA foreign_keys = ON;
@@ -80,6 +81,9 @@ function sessionCookie(response: Response): string {
 beforeEach(async () => {
   database = createDb({ url: "file::memory:" });
   await database.$client.executeMultiple(authSchemaSql);
+  await database.$client.executeMultiple(
+    await Bun.file(new URL("../../db/src/migrations/0001_mean_ser_duncan.sql", import.meta.url)).text(),
+  );
   auth = createAuth({ database });
 });
 
@@ -168,4 +172,26 @@ describe("authentification locale par identifiant", () => {
       expect((await auth.handler(recoveryRequest)).status).toBe(404);
     }
   });
+});
+
+
+test("la migration Better Auth conserve un compte et son mot de passe existants", async () => {
+  const legacy = createDb({ url: "file::memory:" });
+  try {
+    await legacy.$client.executeMultiple(authSchemaSql);
+    const password = "Legacy-password-123!";
+    const passwordHash = await hashPassword(password);
+    await legacy.$client.execute({ sql: "insert into user (id,name,email,email_verified,username,created_at,updated_at) values (?,?,?,?,?,?,?)", args: ["legacy-user","Legacy User","legacy@accounts.plan2classe.invalid",0,"legacy",1,1] });
+    await legacy.$client.execute({ sql: "insert into account (id,issuer,account_id,provider_id,user_id,password,created_at,updated_at) values (?,?,?,?,?,?,?,?)", args: ["legacy-account","credential","legacy-user","credential","legacy-user",passwordHash,1,1] });
+    await legacy.$client.executeMultiple(await Bun.file(new URL("../../db/src/migrations/0001_mean_ser_duncan.sql", import.meta.url)).text());
+    const migratedAuth = createAuth({ database: legacy });
+    const response = await migratedAuth.handler(request("/sign-in/username", { username: "legacy", password }));
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.user.id).toBe("legacy-user");
+    const rows = await legacy.$client.execute("select password from account where id='legacy-account'");
+    expect(rows.rows[0]?.password).toBe(passwordHash);
+  } finally {
+    await legacy.$client.close();
+  }
 });
